@@ -1067,7 +1067,7 @@ export default function FretboardScalesPage() {
 
   const [showNonScale, setShowNonScale] = useState(false);
 
-  const [customInput, setCustomInput] = useState("1 b3 5 6");
+  const [customInput, setCustomInput] = useState("1 3 5 7");
 
   // Extras (default OFF)
   const [extraInput, setExtraInput] = useState("b2");
