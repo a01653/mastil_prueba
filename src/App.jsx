@@ -2416,6 +2416,13 @@ export default function FretboardScalesPage() {
 
   function roleOfPc(pc) {
     const interval = mod12(pc - rootPc);
+
+    // Blues: la “blue note” se pinta como NOTA EXTRA (mismo color que extras), aunque forme parte de la escala.
+    // - Blues (menor): b5 / #4 => 6
+    // - Blues (mayor): b3 => 3
+    const bluesBlue = scaleName === "Blues (menor)" ? 6 : scaleName === "Blues (mayor)" ? 3 : null;
+    if (bluesBlue != null && interval === bluesBlue) return "extra";
+
     if (interval === 0) return "root";
     if (thirdOffsets.includes(interval)) return "third";
     if (interval === 7) return "fifth";
@@ -3123,11 +3130,13 @@ export default function FretboardScalesPage() {
     );
   }
 
-  function ToggleButton({ active, onClick, children }) {
+  function ToggleButton({ active, onClick, children, title }) {
+    const fallbackTitle = typeof children === "string" ? children : "";
     return (
       <button
         type="button"
         onClick={onClick}
+        title={title || fallbackTitle}
         className={`rounded-xl px-3 py-2 text-sm ring-1 ring-slate-200 shadow-sm ${active ? "bg-slate-900 text-white" : "bg-white"}`}
       >
         {children}
@@ -3230,10 +3239,10 @@ export default function FretboardScalesPage() {
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium">Vista</label>
                   <div className="mt-1 flex gap-2">
-                    <ToggleButton active={showNotesLabel} onClick={() => setShowNotesLabel((v) => !v)}>
+                    <ToggleButton title="Muestra/oculta los nombres de nota (F, G, Ab…)." active={showNotesLabel} onClick={() => setShowNotesLabel((v) => !v)}>
                       Notas
                     </ToggleButton>
-                    <ToggleButton active={showIntervalsLabel} onClick={() => setShowIntervalsLabel((v) => !v)}>
+                    <ToggleButton title="Muestra/oculta los intervalos (1, b3, 5…)." active={showIntervalsLabel} onClick={() => setShowIntervalsLabel((v) => !v)}>
                       Intervalos
                     </ToggleButton>
                   </div>
@@ -3259,13 +3268,13 @@ export default function FretboardScalesPage() {
                 <div className="md:col-span-4">
                   <label className="block text-sm font-medium">Notación</label>
                   <div className="mt-1 flex gap-2">
-                    <ToggleButton active={accMode === "auto"} onClick={() => setAccMode("auto")}>
+                    <ToggleButton title="Notación automática: elige #/b según la armadura típica de la tonalidad." active={accMode === "auto"} onClick={() => setAccMode("auto")}>
                       Auto
                     </ToggleButton>
-                    <ToggleButton active={accMode === "sharps"} onClick={() => setAccMode("sharps")}>
+                    <ToggleButton title="Forzar sostenidos (#) en los nombres de nota." active={accMode === "sharps"} onClick={() => setAccMode("sharps")}>
                       #
                     </ToggleButton>
-                    <ToggleButton active={accMode === "flats"} onClick={() => setAccMode("flats")}>
+                    <ToggleButton title="Forzar bemoles (b) en los nombres de nota." active={accMode === "flats"} onClick={() => setAccMode("flats")}>
                       b
                     </ToggleButton>
                   </div>
@@ -3275,10 +3284,10 @@ export default function FretboardScalesPage() {
                 <div className="md:col-span-3">
                   <label className="block text-sm font-medium">Mostrar</label>
                   <div className="mt-1 flex gap-2">
-                    <ToggleButton active={showNonScale} onClick={() => setShowNonScale((v) => !v)}>
+                    <ToggleButton title="Muestra también las notas que NO pertenecen a la escala (en gris)." active={showNonScale} onClick={() => setShowNonScale((v) => !v)}>
                       Ver todo
                     </ToggleButton>
-                    <ToggleButton active={showExtra} onClick={() => setShowExtra((v) => !v)}>
+                    <ToggleButton title="Activa/desactiva el resaltado de ‘Notas extra’ (se pintan con el color de extra)." active={showExtra} onClick={() => setShowExtra((v) => !v)}>
                       {showExtra ? "Extra ON" : "Extra OFF"}
                     </ToggleButton>
                   </div>
@@ -3366,16 +3375,16 @@ export default function FretboardScalesPage() {
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <ToggleButton active={routePreferNps} onClick={() => setRoutePreferNps((v) => !v)}>
+                  <ToggleButton title="Prioriza una digitación tipo NPS (2 notas/cuerda en pentas, 3 notas/cuerda en 7 notas). Penaliza cambios de cuerda ‘demasiado pronto’." active={routePreferNps} onClick={() => setRoutePreferNps((v) => !v)}>
                     Preferir NPS
                   </ToggleButton>
-                  <ToggleButton active={routePreferVertical} onClick={() => setRoutePreferVertical((v) => !v)}>
+                  <ToggleButton title="Prioriza moverse ‘vertical’: cambiar de cuerda con saltos pequeños de traste (más realista al bajar/subir por el mástil)." active={routePreferVertical} onClick={() => setRoutePreferVertical((v) => !v)}>
                     Preferir vertical
                   </ToggleButton>
-                  <ToggleButton active={routeKeepPattern} onClick={() => setRouteKeepPattern((v) => !v)}>
+                  <ToggleButton title="Intenta mantener la MISMA instancia de patrón (box/3NPS/CAGED) si existe continuidad; evita ‘teletransportes’ entre copias del patrón." active={routeKeepPattern} onClick={() => setRouteKeepPattern((v) => !v)}>
                     Mantener patrón
                   </ToggleButton>
-                  <ToggleButton active={allowPatternSwitch} onClick={() => setAllowPatternSwitch((v) => !v)}>
+                  <ToggleButton title="Permite cambiar de patrón durante la ruta. Si lo desactivas, la ruta se fuerza a un único patrón y puede no existir." active={allowPatternSwitch} onClick={() => setAllowPatternSwitch((v) => !v)}>
                     Permite cambio patrón
                   </ToggleButton>
 
@@ -3399,16 +3408,16 @@ export default function FretboardScalesPage() {
               {/* Toggles de mástiles */}
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <div className="text-sm font-semibold text-slate-800">Mástiles:</div>
-                <ToggleButton active={showBoards.scale} onClick={() => setShowBoards((s) => ({ ...s, scale: !s.scale }))}>
+                <ToggleButton title="Muestra/oculta el mástil de la escala." active={showBoards.scale} onClick={() => setShowBoards((s) => ({ ...s, scale: !s.scale }))}>
                   Escala
                 </ToggleButton>
-                <ToggleButton active={showBoards.patterns} onClick={() => setShowBoards((s) => ({ ...s, patterns: !s.patterns }))}>
+                <ToggleButton title="Muestra/oculta el mástil de patrones (fondos por patrón)." active={showBoards.patterns} onClick={() => setShowBoards((s) => ({ ...s, patterns: !s.patterns }))}>
                   Patrones
                 </ToggleButton>
-                <ToggleButton active={showBoards.route} onClick={() => setShowBoards((s) => ({ ...s, route: !s.route }))}>
+                <ToggleButton title="Muestra/oculta el mástil de ruta calculada." active={showBoards.route} onClick={() => setShowBoards((s) => ({ ...s, route: !s.route }))}>
                   Ruta
                 </ToggleButton>
-                <ToggleButton active={showBoards.chords} onClick={() => setShowBoards((s) => ({ ...s, chords: !s.chords }))}>
+                <ToggleButton title="Muestra/oculta el panel de acordes (voicings y acordes cercanos)." active={showBoards.chords} onClick={() => setShowBoards((s) => ({ ...s, chords: !s.chords }))}>
                   Acordes
                 </ToggleButton>
 
