@@ -28,6 +28,32 @@ const SCALE_PRESETS = {
   "Eólica (Aeolian)": [0, 2, 3, 5, 7, 8, 10],
   "Locria (Locrian)": [0, 1, 3, 5, 6, 8, 10],
 
+  // Menores “armónicas / melódicas”
+  "Menor armónica": [0, 2, 3, 5, 7, 8, 11],
+  "Menor melódica (asc)": [0, 2, 3, 5, 7, 9, 11],
+
+  // Variantes mayores
+  "Mayor armónica": [0, 2, 4, 5, 7, 8, 11],
+  "Doble armónica (Bizantina)": [0, 1, 4, 5, 7, 8, 11],
+
+  // Modos/colores habituales
+  "Frigia dominante": [0, 1, 4, 5, 7, 8, 10],
+  "Lidia dominante": [0, 2, 4, 6, 7, 9, 10],
+  "Alterada (Superlocria)": [0, 1, 3, 4, 6, 8, 10],
+  "Húngara menor (Gypsy)": [0, 2, 3, 6, 7, 8, 11],
+
+  // Bebop (8 notas)
+  "Bebop mayor": [0, 2, 4, 5, 7, 8, 9, 11],
+  "Bebop dominante": [0, 2, 4, 5, 7, 9, 10, 11],
+  "Bebop dórica": [0, 2, 3, 4, 5, 7, 9, 10],
+
+  // Otras útiles
+  "Blues (menor)": [0, 3, 5, 6, 7, 10],
+  "Blues (mayor)": [0, 2, 3, 4, 7, 9],
+  "Tonos enteros": [0, 2, 4, 6, 8, 10],
+  "Disminuida (H-W)": [0, 1, 3, 4, 6, 7, 9, 10],
+  "Disminuida (W-H)": [0, 2, 3, 5, 6, 8, 9, 11],
+
   "Personalizada": null,
 };
 
@@ -1724,7 +1750,7 @@ export default function FretboardScalesPage() {
     root: "#e11d48",
     third: "#0284c7",
     fifth: "#059669",
-    other: "#e2e8f0",
+    other: "#bababa",
     extra: "#f59e0b",
     route: "#a78bfa",
   });
