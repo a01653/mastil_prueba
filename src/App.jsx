@@ -434,11 +434,15 @@ function fretsForPcOnString(sIdx, targetPc, maxFret) {
 function buildVoicingFromFretsLH({ fretsLH, rootPc, maxFret }) {
   // Dataset: LowE..HighE. UI uses 1ª..6ª => invertimos para notes.
   const notes = [];
+  const mutedSIdx = [];
   for (let i = 0; i < 6; i++) {
     const fret = fretsLH[i];
-    if (fret == null) continue;
-    if (fret < 0 || fret > maxFret) return null;
     const sIdx = 5 - i;
+    if (fret == null) {
+      mutedSIdx.push(sIdx);
+      continue;
+    }
+    if (fret < 0 || fret > maxFret) return null;
     const pc = mod12(STRINGS[sIdx].pc + fret);
     notes.push({ sIdx, fret, pc });
   }
@@ -457,6 +461,7 @@ function buildVoicingFromFretsLH({ fretsLH, rootPc, maxFret }) {
   return {
     frets: fretsToChordDbString(fretsLH),
     notes,
+    mutedSIdx,
     bassKey: `${bass.sIdx}:${bass.fret}`,
     bassPc: bass.pc,
     minFret,
@@ -3445,8 +3450,20 @@ export default function FretboardScalesPage() {
     );
   }
 
+  function MuteMark({ small = false, title = "Cuerda muteada" }) {
+    return (
+      <div
+        className={`relative z-20 inline-flex items-center justify-center rounded-full border border-slate-300 bg-white font-bold text-slate-600 ${small ? "h-5 w-5 text-[10px]" : "h-6 w-6 text-[11px]"}`}
+        title={title}
+      >
+        X
+      </div>
+    );
+  }
+
   function ChordFretboard({ title, voicing, voicingIdx, voicingTotal }) {
     const cellMap = new Map();
+    const mutedSet = new Set(voicing?.mutedSIdx || []);
     if (voicing?.notes) {
       for (const n of voicing.notes) cellMap.set(`${n.sIdx}:${n.fret}`, n);
     }
@@ -3507,7 +3524,7 @@ export default function FretboardScalesPage() {
                   const inVoicing = !!n;
                   const role = inVoicing ? chordRoleOfPc(pc) : "other";
                   const isBass = inVoicing && voicing?.bassKey === cellKey;
-
+                  const showMuteX = fret === 0 && !inVoicing && mutedSet.has(sIdx);
                   return (
                     <div
                       key={`${sIdx}-${fret}`}
@@ -3522,6 +3539,7 @@ export default function FretboardScalesPage() {
                         </div>
                       ) : null}
                       {inVoicing ? <ChordCircle pc={pc} role={role} fret={fret} sIdx={sIdx} isBass={isBass} /> : null}
+                      {showMuteX ? <MuteMark title={`Cuerda ${sIdx + 1} muteada`} /> : null}
                     </div>
                   );
                 })}
@@ -3536,17 +3554,21 @@ export default function FretboardScalesPage() {
   // Mástil combinado para "Acordes cercanos" (hasta 4)
   function NearChordsFretboard() {
     // cellKey -> [{slotIdx, pc, isBass, role}...]
-    const slotNoteMaps = useMemo(() => {
+    const slotDataMaps = useMemo(() => {
       return nearSlots.map((slot, idx) => {
-        const m = new Map();
-        if (!slot?.enabled) return m;
+        const notesMap = new Map();
+        const mutedSet = new Set();
+        if (!slot?.enabled) return { notesMap, mutedSet };
         const v = nearComputed.selected[idx];
-        if (!v?.notes?.length) return m;
+        if (v?.mutedSIdx?.length) {
+          for (const s of v.mutedSIdx) mutedSet.add(s);
+        }
+        if (!v?.notes?.length) return { notesMap, mutedSet };
         for (const n of v.notes) {
           const key = `${n.sIdx}:${n.fret}`;
-          m.set(key, { pc: n.pc, isBass: v.bassKey === key });
+          notesMap.set(key, { pc: n.pc, isBass: v.bassKey === key });
         }
-        return m;
+        return { notesMap, mutedSet };
       });
     }, [nearSlots, nearComputed.selected]);
 
@@ -3704,10 +3726,20 @@ export default function FretboardScalesPage() {
                   const items = [];
                   for (let slotIdx = 0; slotIdx < 4; slotIdx++) {
                     if (!nearSlots[slotIdx]?.enabled) continue;
-                    const n = slotNoteMaps[slotIdx].get(cellKey);
+                    const n = slotDataMaps[slotIdx].notesMap.get(cellKey);
                     if (!n) continue;
                     const role = slotRoleOfPc(n.pc, nearSlots[slotIdx]);
                     items.push({ slotIdx, pc: n.pc, isBass: n.isBass, role });
+                  }
+
+                  const muteItems = [];
+                  if (fret === 0) {
+                    for (let slotIdx = 0; slotIdx < 4; slotIdx++) {
+                      if (!nearSlots[slotIdx]?.enabled) continue;
+                      if (slotDataMaps[slotIdx].mutedSet.has(sIdx) && !slotDataMaps[slotIdx].notesMap.has(cellKey)) {
+                        muteItems.push({ slotIdx });
+                      }
+                    }
                   }
 
                   return (
@@ -3748,6 +3780,23 @@ export default function FretboardScalesPage() {
                                 </div>
                               );
                             })}
+                        </div>
+                      ) : null}
+                      {!items.length && muteItems.length === 1 ? (
+                        <div className="pointer-events-none">
+                          <MuteMark title={`A${muteItems[0].slotIdx + 1}: cuerda ${sIdx + 1} muteada`} />
+                        </div>
+                      ) : null}
+                      {!items.length && muteItems.length > 1 ? (
+                        <div className="absolute inset-0 pointer-events-none">
+                          {muteItems.slice(0, 4).map((it, i2) => {
+                            const pos = cornerStyle(muteItems.length, i2);
+                            return (
+                              <div key={`mute-${it.slotIdx}-${i2}`} className="absolute" style={pos}>
+                                <MuteMark small title={`A${it.slotIdx + 1}: cuerda ${sIdx + 1} muteada`} />
+                              </div>
+                            );
+                          })}
                         </div>
                       ) : null}
                     </div>
