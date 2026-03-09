@@ -81,8 +81,14 @@ function fretGridCols(maxFret) {
   return `110px ${fret0} repeat(${maxFret}, ${rest})`;
 }
 
+function hasInlayCell(fret, sIdx) {
+  return (INLAY_SINGLE.has(fret) && sIdx === 2) || (INLAY_DOUBLE.has(fret) && (sIdx === 1 || sIdx === 3));
+}
+
+
 const LETTERS = ["C", "D", "E", "F", "G", "A", "B"];
 const NATURAL_PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+const NATURAL_PCS = new Set(Object.values(NATURAL_PC));
 const IONIAN_INTERVALS = [0, 2, 4, 5, 7, 9, 11];
 
 function mod12(n) {
@@ -93,6 +99,22 @@ function mod12(n) {
 function pcToName(pc, preferSharps) {
   const list = preferSharps ? NOTES_SHARP : NOTES_FLAT;
   return list[mod12(pc)];
+}
+
+// ------------------------
+// Acordes UI: selector de Tono por letra + ♭/♯ (sin C#/Db en el combo)
+// - El combo muestra solo C D E F G A B.
+// - Los botones ♭/♯ desplazan 1 semitono y fijan la “ortografía” (C# vs Db).
+// ------------------------
+const BLACK_PC_TO_LETTER_SHARP = { 1: "C", 3: "D", 6: "F", 8: "G", 10: "A" };
+const BLACK_PC_TO_LETTER_FLAT = { 1: "D", 3: "E", 6: "G", 8: "A", 10: "B" };
+
+function chordUiLetterFromPc(pc, preferSharps) {
+  const p = mod12(pc);
+  for (const [l, v] of Object.entries(NATURAL_PC)) {
+    if (v === p) return l;
+  }
+  return preferSharps ? (BLACK_PC_TO_LETTER_SHARP[p] || "C") : (BLACK_PC_TO_LETTER_FLAT[p] || "D");
 }
 
 function pitchAt(sIdx, fret) {
@@ -159,42 +181,188 @@ function chordDbKeyNameFromPc(pc) {
   return NOTES_SHARP[mod12(pc)];
 }
 
-function chordSuffixFromUI({ quality, structure, ext7, ext9, ext11, ext13 }) {
-  // triadas
+function chordSuffixFromUI({ quality, suspension = "none", structure, ext7, ext6, ext9, ext11, ext13 }) {
+  const sus = suspension || "none";
+  const isSus = sus !== "none";
+  const q = quality;
+  const isMajLike = q === "maj" || q === "dom";
+  const isMin = q === "min";
+
+  // Normaliza combinaciones raras: sus + dim/ø no es habitual.
+  const q2 = isSus && (q === "dim" || q === "hdim") ? "maj" : q;
+
+  // TRIADAS
   if (structure === "triad") {
-    if (quality === "maj") return "major";
-    if (quality === "min") return "minor";
-    // dim y semi-dim (triada) => dim
+    if (isSus) {
+      if (ext7) {
+        if (q2 === "dom") return sus === "sus4" ? "7sus4" : "7sus2";
+        if (q2 === "maj") return sus === "sus4" ? "maj7sus4" : "maj7sus2";
+        return sus === "sus4" ? "m7sus4" : "m7sus2";
+      }
+      if (ext6) return sus === "sus4" ? "sus4add6" : "sus2add6";
+      return sus === "sus4" ? "sus4" : "sus2";
+    }
+
+    if (ext6 && !ext7) return isMin ? "m6" : "6";
+    if (isMajLike) return "major";
+    if (isMin) return "minor";
     return "dim";
   }
 
-  // cuatriadas
+  // CUATRIADAS
   if (structure === "tetrad") {
-    if (quality === "maj") return "maj7";
-    if (quality === "min") return "m7";
-    if (quality === "hdim") return "m7b5";
+    const addCount = (ext6 ? 1 : 0) + (ext9 ? 1 : 0) + (ext11 ? 1 : 0) + (ext13 ? 1 : 0);
+
+    // add6/add9/add11/add13 (sin 7ª)
+    if (!ext7 && addCount === 1) {
+      if (ext6) return isMin ? "m6" : "6";
+      if (ext13) return isMin ? "m(add13)" : "add13";
+      if (ext11) return isMin ? "m(add11)" : "add11";
+      if (ext9) return isMin ? "m(add9)" : "add9";
+    }
+
+    if (isSus) {
+      if (q2 === "dom") return sus === "sus4" ? "7sus4" : "7sus2";
+      if (q2 === "maj") return sus === "sus4" ? "maj7sus4" : "maj7sus2";
+      return sus === "sus4" ? "m7sus4" : "m7sus2";
+    }
+
+    if (q2 === "maj") return "maj7";
+    if (q2 === "dom") return "7";
+    if (q2 === "min") return "m7";
+    if (q2 === "hdim") return "m7b5";
     return "dim7";
   }
 
-  // acordes (con extensiones)
-  if (quality === "hdim") return "m7b5";
+  // ACORDES (con extensiones)
+  if (q2 === "hdim") return "m7b5";
 
-  if (quality === "dim") {
-    // si el usuario pide extensiones, en dim usamos dim7 (lo disponible en dataset)
+  if (isSus) {
+    if (ext7) {
+      if (q2 === "dom") return sus === "sus4" ? "7sus4" : "7sus2";
+      if (q2 === "maj") return sus === "sus4" ? "maj7sus4" : "maj7sus2";
+      if (q2 === "min") return sus === "sus4" ? "m7sus4" : "m7sus2";
+    }
+    if (ext6 && !ext7 && !ext9 && !ext11 && !ext13) return isMin ? "m6" : "6";
+    return sus === "sus4" ? "sus4" : "sus2";
+  }
+
+  // add6 puro (sin 7/9/11/13)
+  if (ext6 && !ext7 && !ext9 && !ext11 && !ext13) return isMin ? "m6" : "6";
+
+  if (q2 === "dim") {
     if (ext13 || ext11 || ext9 || ext7) return "dim7";
     return "dim";
   }
 
-  if (ext13) return quality === "maj" ? "maj13" : "m13";
-  if (ext11) return quality === "maj" ? "maj11" : "m11";
+  // Dominantes
+  if (q2 === "dom") {
+    if (ext13) return "13";
+    if (ext11) return "11";
+    if (ext9) return ext7 ? "9" : "add9";
+    if (ext7) return "7";
+    if (ext6) return "6";
+    return "major";
+  }
+
+  // Maj / min
+  if (ext13) return q2 === "maj" ? "maj13" : "m13";
+  if (ext11) return q2 === "maj" ? "maj11" : "m11";
   if (ext9) {
-    if (quality === "maj") return ext7 ? "maj9" : "add9";
-    // Nota: en este dataset no hay madd9 (sin 7). Si quieres 9 en menor, marca 7 (m9).
+    if (q2 === "maj") return ext7 ? "maj9" : "add9";
     return ext7 ? "m9" : null;
   }
 
-  if (ext7) return quality === "maj" ? "maj7" : "m7";
-  return quality === "maj" ? "major" : "minor";
+  if (ext7) return q2 === "maj" ? "maj7" : "m7";
+  if (ext6) return q2 === "maj" ? "6" : "m6";
+  return q2 === "maj" ? "major" : "minor";
+}
+
+// Nombre legible del acorde a partir de la selección actual (sin inventar digitaciones).
+const CHORD_SUFFIX_DISPLAY = {
+  major: "",
+  minor: "m",
+  dim: "dim",
+  maj7: "maj7",
+  "7": "7",
+  m7: "m7",
+  m7b5: "m7(b5)",
+  dim7: "dim7",
+
+  // 6 / add6 (estándar)
+  "6": "6",
+  m6: "m6",
+
+  // sus
+  sus2: "sus2",
+  sus4: "sus4",
+  "7sus2": "7sus2",
+  "7sus4": "7sus4",
+  maj7sus2: "maj7sus2",
+  maj7sus4: "maj7sus4",
+  m7sus2: "m7sus2",
+  m7sus4: "m7sus4",
+  sus2add6: "sus2(add6)",
+  sus4add6: "sus4(add6)",
+
+  // add*
+  add9: "add9",
+  add11: "add11",
+  add13: "add13",
+  sus2add9: "sus2add9",
+  sus4add9: "sus4add9",
+  sus2add11: "sus2add11",
+  sus4add11: "sus4add11",
+  sus2add13: "sus2add13",
+  sus4add13: "sus4add13",
+
+  maj9: "maj9",
+  m9: "m9",
+  "9": "9",
+  "11": "11",
+  "13": "13",
+  maj11: "maj11",
+  m11: "m11",
+  maj13: "maj13",
+  m13: "m13",
+};
+
+function chordEffectiveStructureForName(structure, ext7, ext6, suspension) {
+  // Si el usuario marca 7 en “Triada”, en la práctica es una cuatriada.
+  // Si marca 6 en “Triada”, solo lo tratamos como "6" (cuatriada) cuando NO hay suspensión.
+  // Ej: Csus2 + 6 debe mostrarse como Csus2(add6), no como C6.
+  const sus = suspension || "none";
+  const isSus = sus !== "none";
+
+  if (structure === "triad" && ext7) return "tetrad";
+  if (structure === "triad" && ext6 && !isSus) return "tetrad";
+  return structure;
+}
+
+function chordDisplayNameFromUI({ rootPc, preferSharps, quality, suspension = "none", structure, ext7, ext6, ext9, ext11, ext13 }) {
+  const rootName = pcToName(mod12(rootPc), !!preferSharps);
+  const effStructure = chordEffectiveStructureForName(structure, !!ext7, !!ext6, suspension);
+
+  let suf = chordSuffixFromUI({
+    quality,
+    suspension,
+    structure: effStructure,
+    ext7: !!ext7,
+    ext6: !!ext6,
+    ext9: !!ext9,
+    ext11: !!ext11,
+    ext13: !!ext13,
+  });
+
+  // Caso especial: calidad dom en triada (sin 7) se muestra como mayor.
+  if (effStructure === "triad" && quality === "dom" && !ext7) suf = "major";
+
+  let disp = "";
+  if (suf && CHORD_SUFFIX_DISPLAY[suf] != null) disp = CHORD_SUFFIX_DISPLAY[suf];
+  else if (typeof suf === "string" && suf.startsWith("m(")) disp = suf;
+  else if (typeof suf === "string") disp = suf;
+
+  return `${rootName}${disp}`;
 }
 
 // Base del sitio (Vite) para que fetch a /public funcione en localhost y GitHub Pages.
@@ -203,6 +371,8 @@ function chordSuffixFromUI({ quality, structure, ext7, ext9, ext11, ext13 }) {
 // En Vite existe import.meta.env.BASE_URL ("/" en dev, "/<repo>/" en GitHub Pages).
 // Evitamos sintaxis TS "as any" porque puede romper el parser en algunos entornos.
 const APP_BASE = (import.meta && import.meta.env && import.meta.env.BASE_URL) ? import.meta.env.BASE_URL : "/";
+// Fallback (cuando se ejecuta fuera del repo, p.ej. sandbox): GitHub Pages del proyecto
+const PAGES_BASE = "https://a01653.github.io/mastil_escalas/";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -464,6 +634,7 @@ function generateTetradVoicings({ rootPc, thirdOffset, fifthOffset, seventhOffse
 
 const CHORD_QUALITIES = [
   { value: "maj", label: "Mayor" },
+  { value: "dom", label: "Dominante (7)" },
   { value: "min", label: "Menor" },
   { value: "dim", label: "Disminuido" },
   { value: "hdim", label: "Semi-disminuido (ø)" },
@@ -482,11 +653,24 @@ const CHORD_INVERSIONS = [
   { value: "3", label: "3ª inversión" },
 ];
 
-function buildChordIntervals({ quality, structure, ext7, ext9, ext11, ext13 }) {
-  const third = quality === "maj" ? 4 : 3; // min/dim/hdim -> m3
-  const fifth = quality === "dim" || quality === "hdim" ? 6 : 7;
+function buildChordIntervals({ quality, suspension, structure, ext7, ext6, ext9, ext11, ext13 }) {
+  const sus = suspension || "none";
+  const third = sus === "sus2" ? 2 : sus === "sus4" ? 5 : quality === "maj" || quality === "dom" ? 4 : 3;
+  const fifth = sus !== "none" ? 7 : quality === "dim" || quality === "hdim" ? 6 : 7;
 
   const out = [0, third, fifth];
+
+  // CUATRIADA "teórica":
+  // - Por defecto incluye 7ª.
+  // - Si activas 6/9/11/13 (solo una), se convierte en add6/add9/add11/add13 (sin 7ª).
+  if (structure === "tetrad") {
+    const addCount = (ext6 ? 1 : 0) + (ext9 ? 1 : 0) + (ext11 ? 1 : 0) + (ext13 ? 1 : 0);
+    if (addCount) {
+      const addInt = ext13 ? 9 : ext11 ? 5 : ext9 ? 2 : 9; // ext6 por defecto
+      out.push(addInt);
+      return Array.from(new Set(out.map(mod12))).sort((a, b) => a - b);
+    }
+  }
 
   // 7ª
   const wants7 = structure !== "triad";
@@ -497,7 +681,7 @@ function buildChordIntervals({ quality, structure, ext7, ext9, ext11, ext13 }) {
     if (quality === "hdim") seventh = 10; // ø7
 
     // en "Acorde" se puede desactivar 7 con el checkbox
-    if (!(structure === "chord" && ext7 === false)) {
+    if (!(structure === "chord" && ext7 === false) && !(structure === "tetrad" && ext7 === false)) {
       out.push(seventh);
     }
   } else {
@@ -511,23 +695,43 @@ function buildChordIntervals({ quality, structure, ext7, ext9, ext11, ext13 }) {
     }
   }
 
-  // extensiones (solo en "Acorde")
+  // extensiones (en "Acorde" sí pueden coexistir)
   if (structure === "chord") {
+    if (ext6) out.push(9);
     if (ext9) out.push(2);
     if (ext11) out.push(5);
     if (ext13) out.push(9);
   }
 
+  // add6 en triada
+  if (structure === "triad" && ext6) out.push(9);
+
   return Array.from(new Set(out.map(mod12))).sort((a, b) => a - b);
 }
 
-function chordBassInterval({ quality, structure, inversion, chordIntervals }) {
-  const third = quality === "maj" ? 4 : 3;
-  const fifth = quality === "dim" || quality === "hdim" ? 6 : 7;
+function seventhOffsetForQuality(quality) {
+  if (quality === "maj") return 11;
+  if (quality === "dim") return 9;
+  // min/dom/hdim
+  return 10;
+}
 
-  const seventh = chordIntervals.find((x) => x === 9 || x === 10 || x === 11);
-  const has7 = seventh != null && structure !== "triad";
-  const degrees = has7 ? [0, third, fifth, seventh] : [0, third, fifth];
+function chordBassInterval({ quality, suspension, structure, inversion, chordIntervals, ext7, ext6, ext9, ext11, ext13 }) {
+  const sus = suspension || "none";
+  const third = sus === "sus2" ? 2 : sus === "sus4" ? 5 : quality === "maj" || quality === "dom" ? 4 : 3;
+  const fifth = sus !== "none" ? 7 : quality === "dim" || quality === "hdim" ? 6 : 7;
+
+  const has7 = !!ext7;
+  let degrees = [0, third, fifth];
+
+  if (has7) {
+    const seventh = seventhOffsetForQuality(quality);
+    degrees = [0, third, fifth, seventh];
+  } else if (structure !== "triad") {
+    // cuatriada/chord sin 7ª: el 4º grado será add6/add9/add11/add13 (si existe)
+    const addInt = ext13 ? 9 : ext11 ? 5 : ext9 ? 2 : ext6 ? 9 : null;
+    if (addInt != null) degrees = [0, third, fifth, addInt];
+  }
 
   if (inversion === "1") return degrees[1] ?? 0;
   if (inversion === "2") return degrees[2] ?? 0;
@@ -535,25 +739,16 @@ function chordBassInterval({ quality, structure, inversion, chordIntervals }) {
   return degrees[0];
 }
 
-function intervalToChordToken(semi, { ext9, ext11, ext13 }) {
+function intervalToChordToken(semi, { ext6, ext9, ext11, ext13 }) {
   const s = mod12(semi);
   const base = intervalToDegreeToken(s);
 
-  if (ext9) {
-    if (s === 1) return "b9";
-    if (s === 2) return "9";
-    if (s === 3) return "#9";
-  }
-  if (ext11) {
-    if (s === 4) return "b11";
-    if (s === 5) return "11";
-    if (s === 6) return "#11";
-  }
-  if (ext13) {
-    if (s === 8) return "b13";
-    if (s === 9) return "13";
-    if (s === 10) return "#13";
-  }
+  // Para acordes mostramos 6/9/11/13 solo en su grado "natural".
+  // No reinterpretamos 3 como b11, ni 6 como #11, etc.
+  if (ext13 && s === 9) return "13";
+  if (ext11 && s === 5) return "11";
+  if (ext9 && s === 2) return "9";
+  if (ext6 && s === 9) return "6";
 
   return base;
 }
@@ -1647,6 +1842,9 @@ export default function FretboardScalesPage() {
   const [showNotesLabel, setShowNotesLabel] = useState(false);
 
   const [rootPc, setRootPc] = useState(5); // F
+  // Selector compacto de tónica (solo letras + ♭/♯), sin “C#/Db” en el combo.
+  const [scaleRootLetter, setScaleRootLetter] = useState("F");
+  const [scaleRootAcc, setScaleRootAcc] = useState(null); // null | "flat" | "sharp"
   const [scaleName, setScaleName] = useState("Escala mayor");
   const isPentatonicScale = scaleName === "Pentatónica mayor" || scaleName === "Pentatónica menor";
   const [maxFret, setMaxFret] = useState(15);
@@ -1660,7 +1858,7 @@ export default function FretboardScalesPage() {
   const [showExtra, setShowExtra] = useState(false);
 
   // Qué mástiles mostrar
-  const [showBoards, setShowBoards] = useState({ scale: false, patterns: false, route: false, chords: false });
+  const [showBoards, setShowBoards] = useState({ scale: true, patterns: false, route: false, chords: false });
 
   // Modo de patrones para el 2º mástil (no afecta a rutas por defecto)
   // auto = comportamiento actual (pentas->boxes, 7 notas->3NPS)
@@ -1670,14 +1868,44 @@ export default function FretboardScalesPage() {
   // Acordes (panel opcional)
   // ------------------------
   const [chordRootPc, setChordRootPc] = useState(5); // F
-  const [chordAccMode, setChordAccMode] = useState("auto"); // auto | sharps | flats
-  const [chordQuality, setChordQuality] = useState("maj"); // maj|min|dim|hdim
+  const [chordSpellPreferSharps, setChordSpellPreferSharps] = useState(() => preferSharpsFromMajorTonicPc(5)); // ortografía del acorde (C# vs Db)
+  const [chordQuality, setChordQuality] = useState("maj"); // maj|min|dom|dim|hdim
+  const [chordSuspension, setChordSuspension] = useState("none"); // none | sus2 | sus4
   const [chordStructure, setChordStructure] = useState("triad"); // triad|tetrad|chord
   const [chordInversion, setChordInversion] = useState("root"); // root|1|2|3
   const [chordExt7, setChordExt7] = useState(false);
+  const [chordExt6, setChordExt6] = useState(false);
   const [chordExt9, setChordExt9] = useState(false);
   const [chordExt11, setChordExt11] = useState(false);
   const [chordExt13, setChordExt13] = useState(false);
+
+  // Regla (cuatriada):
+  // - Por defecto incluye 7ª.
+  // - Si activas 9/11/13 (solo una), se desactiva 7ª y pasa a ser add9/add11/add13.
+  useEffect(() => {
+    if (chordStructure !== "tetrad") return;
+
+    // Mantén solo UNA extensión (prioridad: 13 > 11 > 9 > 6)
+    if (chordExt13) {
+      if (chordExt11) setChordExt11(false);
+      if (chordExt9) setChordExt9(false);
+      if (chordExt6) setChordExt6(false);
+    } else if (chordExt11) {
+      if (chordExt9) setChordExt9(false);
+      if (chordExt6) setChordExt6(false);
+    } else if (chordExt9) {
+      if (chordExt6) setChordExt6(false);
+    }
+
+    if (chordExt6) {
+      if (chordExt9) setChordExt9(false);
+      if (chordExt11) setChordExt11(false);
+      if (chordExt13) setChordExt13(false);
+    }
+
+    const addCount = (chordExt6 ? 1 : 0) + (chordExt9 ? 1 : 0) + (chordExt11 ? 1 : 0) + (chordExt13 ? 1 : 0);
+    setChordExt7(addCount === 0);
+  }, [chordStructure, chordExt6, chordExt9, chordExt11, chordExt13]);
   // Voicings de acordes (digitaciones tocables) desde dataset externo
   const [chordDb, setChordDb] = useState(null);
   const [chordDbError, setChordDbError] = useState(null);
@@ -1689,18 +1917,32 @@ export default function FretboardScalesPage() {
   // - Hasta 4 acordes (slot 1 es base)
   // - Calcula digitaciones tocables dentro del rango y ordena por cercanía al acorde base
   // ------------------------
-  const [nearFretFrom, setNearFretFrom] = useState(2);
-  const [nearFretTo, setNearFretTo] = useState(7);
+  const [nearWindowStart, setNearWindowStart] = useState(2); // inicio del rango (traste)
+  const [nearWindowSize, setNearWindowSize] = useState(6); // tamaño del rango (nº de trastes, incluye inicio)
+
+  // Clamp del rango a 0–maxFret
+  useEffect(() => {
+    const size = Math.max(1, Math.floor(Number(nearWindowSize) || 1));
+    const startMax = Math.max(0, maxFret - (size - 1));
+    if (size !== nearWindowSize) setNearWindowSize(size);
+    setNearWindowStart((s) => {
+      const v = Math.floor(Number(s) || 0);
+      return Math.max(0, Math.min(startMax, v));
+    });
+  }, [nearWindowSize, maxFret]);
+
     const [nearSlots, setNearSlots] = useState(() => {
     // slot 0: base (por defecto, el mismo tono/calidad del panel principal)
     const base = {
       enabled: true,
-      accMode: "auto", // auto | sharps | flats (solo para mostrar nombres)
+      spellPreferSharps: true, // C# vs Db (solo para mostrar/nombrar)
       rootPc: 0, // C
       quality: "maj",
+      suspension: "none",
       structure: "triad",
       inversion: "root",
       ext7: false,
+      ext6: false,
       ext9: false,
       ext11: false,
       ext13: false,
@@ -1708,12 +1950,14 @@ export default function FretboardScalesPage() {
     };
     const mkEmpty = () => ({
       enabled: false,
-      accMode: "auto", // auto | sharps | flats
+      spellPreferSharps: true, // C# vs Db (solo para mostrar/nombrar)
       rootPc: 7, // G
       quality: "maj",
+      suspension: "none",
       structure: "triad",
       inversion: "root",
       ext7: false,
+      ext6: false,
       ext9: false,
       ext11: false,
       ext13: false,
@@ -1753,6 +1997,11 @@ export default function FretboardScalesPage() {
     other: "#bababa",
     extra: "#f59e0b",
     route: "#a78bfa",
+    seventh: "#edbc07",
+    sixth: "#d2b7b7",
+    ninth: "#c99ed1",
+    eleventh: "#b0a2e2",
+    thirteenth: "#88f2c9",
   });
 
   const [patternColors, setPatternColors] = useState([
@@ -1789,9 +2038,8 @@ export default function FretboardScalesPage() {
     return list.map((n, i) => ({ label: n, pc: i }));
   }, [preferSharps]);
 
-  // Acordes: notación y tonos
-  const chordAutoPreferSharps = useMemo(() => preferSharpsFromMajorTonicPc(chordRootPc), [chordRootPc]);
-  const chordPreferSharps = chordAccMode === "auto" ? chordAutoPreferSharps : chordAccMode === "sharps";
+  // Acordes: ortografía del nombre (C# vs Db). No depende de la notación global.
+  const chordPreferSharps = chordSpellPreferSharps;
 
   // Deletreo armónico del acorde: evita cosas como D–Gb–A (debe ser D–F#–A)
   const chordPcToSpelledName = (pc) => {
@@ -1809,35 +2057,59 @@ export default function FretboardScalesPage() {
     () =>
       buildChordIntervals({
         quality: chordQuality,
+        suspension: chordSuspension,
         structure: chordStructure,
         ext7: chordExt7,
+        ext6: chordExt6,
         ext9: chordExt9,
         ext11: chordExt11,
         ext13: chordExt13,
       }),
-    [chordQuality, chordStructure, chordExt7, chordExt9, chordExt11, chordExt13]
+    [chordQuality, chordSuspension, chordStructure, chordExt7, chordExt6, chordExt9, chordExt11, chordExt13]
   );
 
   const chordSuffix = useMemo(
     () =>
       chordSuffixFromUI({
         quality: chordQuality,
+        suspension: chordSuspension,
         structure: chordStructure,
         ext7: chordExt7,
+        ext6: chordExt6,
         ext9: chordExt9,
         ext11: chordExt11,
         ext13: chordExt13,
       }),
-    [chordQuality, chordStructure, chordExt7, chordExt9, chordExt11, chordExt13]
+    [chordQuality, chordSuspension, chordStructure, chordExt7, chordExt6, chordExt9, chordExt11, chordExt13]
   );
 
   // Necesarios antes de filtrar voicings (evita TDZ)
-  const chordThirdOffset = useMemo(() => (chordQuality === "maj" ? 4 : 3), [chordQuality]);
-  const chordFifthOffset = useMemo(() => (chordQuality === "dim" || chordQuality === "hdim" ? 6 : 7), [chordQuality]);
+  const chordThirdOffset = useMemo(() => {
+    if (chordSuspension === "sus2") return 2;
+    if (chordSuspension === "sus4") return 5;
+    return chordQuality === "maj" || chordQuality === "dom" ? 4 : 3;
+  }, [chordQuality, chordSuspension]);
+  const chordFifthOffset = useMemo(() => {
+    // En sus (2/4) mantenemos 5ª justa.
+    if (chordSuspension && chordSuspension !== "none") return 7;
+    return chordQuality === "dim" || chordQuality === "hdim" ? 6 : 7;
+  }, [chordQuality, chordSuspension]);
 
   const chordBassInt = useMemo(
-    () => chordBassInterval({ quality: chordQuality, structure: chordStructure, inversion: chordInversion, chordIntervals }),
-    [chordQuality, chordStructure, chordInversion, chordIntervals]
+    () =>
+      chordBassInterval({
+        quality: chordQuality,
+        suspension: chordSuspension,
+        structure: chordStructure,
+        inversion: chordInversion,
+        chordIntervals,
+        ext7: chordExt7,
+        ext6: chordExt6,
+        ext9: chordExt9,
+        ext11: chordExt11,
+        ext13: chordExt13,
+      }),
+    [chordQuality, chordSuspension, chordStructure, chordInversion, chordIntervals, chordExt7, chordExt6, chordExt9, chordExt11, chordExt13]
   );
   const chordBassPc = useMemo(() => mod12(chordRootPc + chordBassInt), [chordRootPc, chordBassInt]);
 
@@ -1849,6 +2121,16 @@ export default function FretboardScalesPage() {
     if (!showBoards.chords) return;
 
     if (chordStructure !== "chord") {
+      setChordDb(null);
+      setChordDbError(null);
+      setChordDbLastUrl(null);
+      return;
+    }
+
+    // Para acordes tipo add6/add9/add11/add13 (sin 7ª) usamos el generador (4 notas) y evitamos ruido de JSON.
+    const addOnly =
+      !chordExt7 && ((chordExt6 ? 1 : 0) + (chordExt9 ? 1 : 0) + (chordExt11 ? 1 : 0) + (chordExt13 ? 1 : 0) === 1);
+    if (addOnly) {
       setChordDb(null);
       setChordDbError(null);
       setChordDbLastUrl(null);
@@ -1867,7 +2149,7 @@ export default function FretboardScalesPage() {
     const urlRel = chordDbUrl(keyName, suffix);
     const urlLocal = chordDbUrlLocal(keyName, suffix);
     const urlLocalAbs = new URL(urlLocal, window.location.href).href;
-    const urlFallbackAbs = `https://raw.githubusercontent.com/a01653/mastil_escalas/main/public/${urlRel}`;
+    const urlFallbackAbs = `${PAGES_BASE}${urlRel}`;
 
     setChordDbLastUrl(urlLocalAbs);
 
@@ -1922,10 +2204,15 @@ export default function FretboardScalesPage() {
       if (!s?.enabled) continue;
       if (s.structure !== "chord") continue;
 
+      const addOnly = !s.ext7 && ((s.ext6 ? 1 : 0) + (s.ext9 ? 1 : 0) + (s.ext11 ? 1 : 0) + (s.ext13 ? 1 : 0) === 1);
+      if (addOnly) continue;
+
       const intervals = buildChordIntervals({
         quality: s.quality,
+        suspension: s.suspension || "none",
         structure: s.structure,
         ext7: s.ext7,
+        ext6: s.ext6,
         ext9: s.ext9,
         ext11: s.ext11,
         ext13: s.ext13,
@@ -1933,8 +2220,10 @@ export default function FretboardScalesPage() {
 
       const suffix = chordSuffixFromUI({
         quality: s.quality,
+        suspension: s.suspension || "none",
         structure: s.structure,
         ext7: s.ext7,
+        ext6: s.ext6,
         ext9: s.ext9,
         ext11: s.ext11,
         ext13: s.ext13,
@@ -1956,7 +2245,7 @@ export default function FretboardScalesPage() {
         try {
           const urlLocal = publicRelToLocal(it.urlRel);
           const urlLocalAbs = new URL(urlLocal, window.location.href).href;
-          const urlFallbackAbs = `https://raw.githubusercontent.com/a01653/mastil_escalas/main/public/${it.urlRel}`;
+          const urlFallbackAbs = `${PAGES_BASE}${it.urlRel}`;
 
           let res = await fetch(urlLocal, { cache: "no-store" });
           if (!res.ok) {
@@ -1982,7 +2271,7 @@ export default function FretboardScalesPage() {
 
   const chordVoicings = useMemo(() => {
     // 1) TRIADAS "reales" = 3 notas (3 cuerdas adyacentes)
-    if (chordStructure === "triad" && !chordExt7) {
+    if (chordStructure === "triad" && !chordExt7 && !chordExt6) {
       const tri = generateTriadVoicings({
         rootPc: chordRootPc,
         thirdOffset: chordThirdOffset,
@@ -1995,9 +2284,30 @@ export default function FretboardScalesPage() {
     }
 
     // 2) CUATRIADAS "reales" = 4 notas (4 cuerdas adyacentes)
-    const seventh = chordIntervals.find((x) => x === 9 || x === 10 || x === 11);
-    const wantsTetrad = chordStructure === "tetrad" || (chordStructure === "triad" && chordExt7);
+    const seventh = chordExt7 ? seventhOffsetForQuality(chordQuality) : null;
+    const wantsTetrad = chordStructure === "tetrad" || (chordStructure === "triad" && (chordExt7 || chordExt6));
     if (wantsTetrad) {
+      // CUATRIADA add9/add11/add13 (sin 7ª): si el usuario activa 9/11/13 en modo Cuatriada,
+      // la 7ª se desactiva y la 4ª nota pasa a ser 9/11/13.
+      const addOnly =
+        (chordStructure === "tetrad" || chordStructure === "triad") &&
+        !chordExt7 &&
+        ((chordExt6 ? 1 : 0) + (chordExt9 ? 1 : 0) + (chordExt11 ? 1 : 0) + (chordExt13 ? 1 : 0) === 1);
+
+      if (addOnly && seventh == null) {
+        const addInt = chordExt13 ? 9 : chordExt11 ? 5 : chordExt9 ? 2 : 9; // 13/11/9
+        const tet = generateTetradVoicings({
+          rootPc: chordRootPc,
+          thirdOffset: chordThirdOffset,
+          fifthOffset: chordFifthOffset,
+          seventhOffset: addInt,
+          inversion: chordInversion,
+          maxFret,
+          maxSpan: 5,
+        });
+        return tet.slice(0, 60);
+      }
+
       if (seventh == null) return [];
       const tet = generateTetradVoicings({
         rootPc: chordRootPc,
@@ -2014,13 +2324,17 @@ export default function FretboardScalesPage() {
     // 2.5) Caso especial: "solo 9" (add9 / m(add9)).
     // Mucha gente quiere 9 sin 7 (p.ej. Fadd9) y el JSON no siempre trae una digitación en rango.
     // Aquí generamos 4 notas tocables (cuerdas adyacentes) con grados 1–3–5–9.
-    const only9 = chordStructure === "chord" && chordExt9 && !chordExt7 && !chordExt11 && !chordExt13;
-    if (only9) {
+    const onlyAdd =
+      chordStructure === "chord" &&
+      !chordExt7 &&
+      ((chordExt6 ? 1 : 0) + (chordExt9 ? 1 : 0) + (chordExt11 ? 1 : 0) + (chordExt13 ? 1 : 0) === 1);
+    if (onlyAdd) {
+      const addInt = chordExt13 ? 9 : chordExt11 ? 5 : chordExt9 ? 2 : 9; // 13/11/9
       const quad = generateTetradVoicings({
         rootPc: chordRootPc,
         thirdOffset: chordThirdOffset,
         fifthOffset: chordFifthOffset,
-        seventhOffset: 2, // 9
+        seventhOffset: addInt,
         inversion: chordInversion,
         maxFret,
         maxSpan: 5,
@@ -2049,15 +2363,16 @@ export default function FretboardScalesPage() {
     required.add(mod12(chordThirdOffset));
 
     // Si NO hay 7/9/11/13, entonces esto es "acorde" pero realmente triada: exigir 1-3-5 para que no aparezcan cosas raras.
-    const noTensions = !chordExt7 && !chordExt9 && !chordExt11 && !chordExt13;
+    const noTensions = !chordExt7 && !chordExt6 && !chordExt9 && !chordExt11 && !chordExt13;
     if (noTensions) {
       required.add(0);
       required.add(mod12(chordFifthOffset));
     } else {
       if (chordExt7) {
-        const seventh = chordIntervals.find((x) => x === 9 || x === 10 || x === 11);
+        const seventh = seventhOffsetForQuality(chordQuality);
         if (seventh != null) required.add(mod12(seventh));
       }
+      if (chordExt6) required.add(9);
       if (chordExt9) required.add(2);
       if (chordExt11) required.add(5);
       if (chordExt13) required.add(9);
@@ -2157,9 +2472,10 @@ export default function FretboardScalesPage() {
   // Acordes (2): cálculo de voicings en rango + ordenación por cercanía
   // ------------------------
   const nearSlotColors = ["#0f172a", "#2563eb", "#16a34a", "#f59e0b"]; // base, 2, 3, 4
+  const nearFrom = Math.max(0, Math.min(maxFret, nearWindowStart));
+  const nearTo = Math.max(nearFrom, Math.min(maxFret, nearWindowStart + Math.max(1, nearWindowSize) - 1));
+  const nearStartMax = Math.max(0, maxFret - (Math.max(1, nearWindowSize) - 1));
 
-  const nearFrom = Math.min(nearFretFrom, nearFretTo);
-  const nearTo = Math.max(nearFretFrom, nearFretTo);
 
   function voicingBassNote(v) {
     if (!v?.notes?.length) return null;
@@ -2191,31 +2507,84 @@ export default function FretboardScalesPage() {
     return 1.2 * bassF + 2.0 * bassS + 0.6 * minF + 0.3 * span + 0.4 * ctr;
   }
 
-  function slotThirdOffset(quality) {
-    return quality === "maj" ? 4 : 3;
+  function slotThirdOffset(quality, suspension) {
+    if (suspension === "sus2") return 2;
+    if (suspension === "sus4") return 5;
+    return quality === "maj" || quality === "dom" ? 4 : 3;
   }
 
-  function slotFifthOffset(quality) {
+  function slotFifthOffset(quality, suspension) {
+    if (suspension && suspension !== "none") return 7;
     return quality === "dim" || quality === "hdim" ? 6 : 7;
   }
 
   function buildSlotIntervals(slot) {
     return buildChordIntervals({
       quality: slot.quality,
+      suspension: slot.suspension || "none",
       structure: slot.structure,
       ext7: slot.ext7,
+      ext6: slot.ext6,
       ext9: slot.ext9,
       ext11: slot.ext11,
       ext13: slot.ext13,
     });
   }
 
+  function spellChordNotesForSlot(slot) {
+    const intervals = buildSlotIntervals(slot);
+    const prefer = slot?.spellPreferSharps ?? preferSharpsFromMajorTonicPc(mod12(slot.rootPc));
+    return spellScaleNotes({ rootPc: mod12(slot.rootPc), scaleIntervals: intervals, preferSharps: prefer });
+  }
+
+  function updateNearSlot(idx, patch) {
+    setNearSlots((prev) =>
+      prev.map((s, i) => {
+        if (i !== idx) return s;
+        const next = { ...s, ...patch };
+
+        // Triada: no 9/11/13
+        if (next.structure === "triad") {
+          next.ext9 = false;
+          next.ext11 = false;
+          next.ext13 = false;
+        }
+
+        // Cuatriada: 7 por defecto; si 6/9/11/13 (una) => add* sin 7
+        if (next.structure === "tetrad") {
+          // Mantén solo UNA extensión (prioridad 13>11>9>6)
+          if (next.ext13) {
+            next.ext11 = false;
+            next.ext9 = false;
+            next.ext6 = false;
+          } else if (next.ext11) {
+            next.ext9 = false;
+            next.ext6 = false;
+          } else if (next.ext9) {
+            next.ext6 = false;
+          }
+
+          if (next.ext6) {
+            next.ext9 = false;
+            next.ext11 = false;
+            next.ext13 = false;
+          }
+
+          const addCount = (next.ext6 ? 1 : 0) + (next.ext9 ? 1 : 0) + (next.ext11 ? 1 : 0) + (next.ext13 ? 1 : 0);
+          next.ext7 = addCount === 0;
+        }
+
+        return next;
+      })
+    );
+  }
+
   function buildSlotVoicings(slot) {
     if (!slot?.enabled) return { voicings: [], err: null };
 
     const rootPc2 = mod12(slot.rootPc);
-    const third = slotThirdOffset(slot.quality);
-    const fifth = slotFifthOffset(slot.quality);
+    const third = slotThirdOffset(slot.quality, slot.suspension);
+    const fifth = slotFifthOffset(slot.quality, slot.suspension);
     const intervals = buildSlotIntervals(slot);
 
     // Filtrado por rango de trastes
@@ -2232,8 +2601,8 @@ export default function FretboardScalesPage() {
     };
 
     // TRIADA / CUATRIADA (generadas, tocables, cuerdas adyacentes)
-    const seventh = intervals.find((x) => x === 9 || x === 10 || x === 11);
-    const wantsTetrad = slot.structure === "tetrad" || (slot.structure === "triad" && slot.ext7);
+    const seventh = slot.ext7 ? seventhOffsetForQuality(slot.quality) : null;
+    const wantsTetrad = slot.structure === "tetrad" || (slot.structure === "triad" && (slot.ext7 || slot.ext6));
 
     if (!wantsTetrad && slot.structure === "triad") {
       const tri = generateTriadVoicings({
@@ -2249,6 +2618,26 @@ export default function FretboardScalesPage() {
     }
 
     if (wantsTetrad) {
+      const addOnly =
+        (slot.structure === "tetrad" || slot.structure === "triad") &&
+        !slot.ext7 &&
+        ((slot.ext6 ? 1 : 0) + (slot.ext9 ? 1 : 0) + (slot.ext11 ? 1 : 0) + (slot.ext13 ? 1 : 0) === 1);
+
+      if (addOnly && seventh == null) {
+        const addInt = slot.ext13 ? 9 : slot.ext11 ? 5 : slot.ext9 ? 2 : 9;
+        const tet = generateTetradVoicings({
+          rootPc: rootPc2,
+          thirdOffset: third,
+          fifthOffset: fifth,
+          seventhOffset: addInt,
+          inversion: slot.inversion,
+          maxFret: nearTo,
+          maxSpan: 5,
+        }).filter(inRange);
+
+        return { voicings: tet, err: tet.length ? null : "No encontré add* en ese rango" };
+      }
+
       if (seventh == null) return { voicings: [], err: "No hay 7ª para esta combinación" };
       const tet = generateTetradVoicings({
         rootPc: rootPc2,
@@ -2265,23 +2654,29 @@ export default function FretboardScalesPage() {
 
     // ACORDE (JSON) — lo usamos solo si el slot está en "Acorde"
     if (slot.structure === "chord") {
-      // Caso especial: "solo 9" (add9 / m(add9)) -> generamos 4 notas tocables.
-      if (slot.ext9 && !slot.ext7 && !slot.ext11 && !slot.ext13) {
+      // Caso especial: add9/add11/add13 sin 7ª -> generamos 4 notas tocables.
+      const onlyAdd =
+        !slot.ext7 &&
+        ((slot.ext6 ? 1 : 0) + (slot.ext9 ? 1 : 0) + (slot.ext11 ? 1 : 0) + (slot.ext13 ? 1 : 0) === 1);
+      if (onlyAdd) {
+        const addInt = slot.ext13 ? 9 : slot.ext11 ? 5 : slot.ext9 ? 2 : 9;
         const quad = generateTetradVoicings({
           rootPc: rootPc2,
           thirdOffset: third,
           fifthOffset: fifth,
-          seventhOffset: 2, // 9
+          seventhOffset: addInt,
           inversion: slot.inversion,
           maxFret: nearTo,
           maxSpan: 5,
         }).filter(inRange);
-        return { voicings: quad, err: quad.length ? null : "No hay add9 en rango" };
+        return { voicings: quad, err: quad.length ? null : "No hay add* en rango" };
       }
       const suffix = chordSuffixFromUI({
         quality: slot.quality,
+        suspension: slot.suspension || "none",
         structure: slot.structure,
         ext7: slot.ext7,
+        ext6: slot.ext6,
         ext9: slot.ext9,
         ext11: slot.ext11,
         ext13: slot.ext13,
@@ -2300,18 +2695,30 @@ export default function FretboardScalesPage() {
       const required = new Set();
       required.add(mod12(third));
 
-      const noTensions = !slot.ext7 && !slot.ext9 && !slot.ext11 && !slot.ext13;
+      const noTensions = !slot.ext7 && !slot.ext6 && !slot.ext9 && !slot.ext11 && !slot.ext13;
       if (noTensions) {
         required.add(0);
         required.add(mod12(fifth));
       } else {
         if (slot.ext7 && seventh != null) required.add(mod12(seventh));
+        if (slot.ext6) required.add(9);
         if (slot.ext9) required.add(2);
         if (slot.ext11) required.add(5);
         if (slot.ext13) required.add(9);
       }
 
-      const bassInt = chordBassInterval({ quality: slot.quality, structure: slot.structure, inversion: slot.inversion, chordIntervals: intervals });
+      const bassInt = chordBassInterval({
+        quality: slot.quality,
+        suspension: slot.suspension || "none",
+        structure: slot.structure,
+        inversion: slot.inversion,
+        chordIntervals: intervals,
+        ext7: slot.ext7,
+        ext6: slot.ext6,
+        ext9: slot.ext9,
+        ext11: slot.ext11,
+        ext13: slot.ext13,
+      });
 
       const outStrict = [];
       const outLoose = [];
@@ -2394,6 +2801,165 @@ export default function FretboardScalesPage() {
     return { ranked, selected, baseVoicing };
   }, [nearSlots, nearFrom, nearTo, chordDbCache, chordDbCacheErr, maxFret]);
 
+  // Acordes de la escala (armonización) a partir del Acorde 1 (base)
+  // Regla “teórica”:
+  // - Si el acorde base NO lleva 7ª -> armonización por TRIADAS.
+  // - Si el acorde base lleva 7ª -> armonización por CUATRIADAS (7ªs diatónicas).
+  // - Mayor: jónica
+  // - Menor: menor natural (eólica)
+  const harmonizedMajor = useMemo(() => {
+    const base = nearSlots?.[0] || {};
+    const tonicPc = mod12(base.rootPc ?? 0);
+
+    const isMinor = base.quality === "min";
+    const has7 = base.structure === "tetrad" || !!base.ext7; // triad+7 o tetrad
+    const mode = isMinor ? "minor" : "major";
+
+    // Armadura esperada para deletreo:
+    // - mayor: tónica
+    // - menor natural: relativa mayor (tónica + 3)
+    const tonicIsAcc = !NATURAL_PCS.has(tonicPc);
+    const keySigPc = mode === "minor" ? mod12(tonicPc + 3) : tonicPc;
+    const prefer = tonicIsAcc ? !!base.spellPreferSharps : preferSharpsFromMajorTonicPc(keySigPc);
+
+    const keyScale = mode === "minor" ? [0, 2, 3, 5, 7, 8, 10] : [0, 2, 4, 5, 7, 9, 11];
+    const spelled = spellScaleNotes({ rootPc: tonicPc, scaleIntervals: keyScale, preferSharps: prefer });
+
+    const names = spelled.map((n, i) => {
+      if (mode === "major") {
+        if (has7) {
+          if (i === 0) return `${n}maj7`;
+          if (i === 1) return `${n}m7`;
+          if (i === 2) return `${n}m7`;
+          if (i === 3) return `${n}maj7`;
+          if (i === 4) return `${n}7`;
+          if (i === 5) return `${n}m7`;
+          return `${n}m7(b5)`;
+        }
+        // Triadas diatónicas (mayor)
+        if (i === 0) return `${n}`;
+        if (i === 1) return `${n}m`;
+        if (i === 2) return `${n}m`;
+        if (i === 3) return `${n}`;
+        if (i === 4) return `${n}`;
+        if (i === 5) return `${n}m`;
+        return `${n}dim`;
+      }
+
+      // Menor natural (eólica)
+      if (has7) {
+        if (i === 0) return `${n}m7`;
+        if (i === 1) return `${n}m7(b5)`;
+        if (i === 2) return `${n}maj7`;
+        if (i === 3) return `${n}m7`;
+        if (i === 4) return `${n}m7`;
+        if (i === 5) return `${n}maj7`;
+        return `${n}7`;
+      }
+      // Triadas diatónicas (menor natural)
+      if (i === 0) return `${n}m`;
+      if (i === 1) return `${n}dim`;
+      if (i === 2) return `${n}`;
+      if (i === 3) return `${n}m`;
+      if (i === 4) return `${n}m`;
+      if (i === 5) return `${n}`;
+      return `${n}`;
+    });
+
+    const tonicName = spelled[0] || pcToName(tonicPc, prefer);
+    const modeLabel = mode === "minor" ? " (menor natural)" : "";
+
+    return { tonicPc, tonicName, modeLabel, prefer, mode, has7, keyScale, spelled, names };
+  }, [
+    nearSlots?.[0]?.rootPc,
+    nearSlots?.[0]?.quality,
+    nearSlots?.[0]?.structure,
+    nearSlots?.[0]?.ext7,
+    nearSlots?.[0]?.spellPreferSharps,
+  ]);
+
+  // Auto-propuesta: si un slot NO está activo, lo ajustamos a acordes diatónicos
+  // - Mayor: slot2=ii, slot3=IV, slot4=V
+  // - Menor natural: slot2=ii°, slot3=iv, slot4=v
+  // - Si el acorde base tiene 7ª => propone cuatriadas (7ªs). Si no => triadas.
+  useEffect(() => {
+    setNearSlots((prev) => {
+      if (!prev?.length) return prev;
+
+      const base = prev[0] || {};
+      const tonicPc = mod12(base.rootPc ?? 0);
+      const isMinor = base.quality === "min";
+      const has7 = base.structure === "tetrad" || !!base.ext7;
+      const mode = isMinor ? "minor" : "major";
+
+      const tonicIsAcc = !NATURAL_PCS.has(tonicPc);
+      const keySigPc = mode === "minor" ? mod12(tonicPc + 3) : tonicPc;
+      const prefer = tonicIsAcc ? !!base.spellPreferSharps : preferSharpsFromMajorTonicPc(keySigPc);
+
+      const make = (rootOffset, quality, structure, ext7) => ({
+        rootPc: mod12(tonicPc + rootOffset),
+        quality,
+        suspension: "none",
+        structure,
+        inversion: "root",
+        ext7: !!ext7,
+        ext6: false,
+        ext9: false,
+        ext11: false,
+        ext13: false,
+        spellPreferSharps: prefer,
+        selFrets: null,
+      });
+
+      const desired = {};
+      if (mode === "major") {
+        if (has7) {
+          desired[1] = make(2, "min", "tetrad", true); // ii m7
+          desired[2] = make(5, "maj", "tetrad", true); // IV maj7
+          desired[3] = make(7, "dom", "tetrad", true); // V7
+        } else {
+          desired[1] = make(2, "min", "triad", false); // ii m
+          desired[2] = make(5, "maj", "triad", false); // IV
+          desired[3] = make(7, "maj", "triad", false); // V
+        }
+      } else {
+        if (has7) {
+          desired[1] = make(2, "hdim", "tetrad", true); // ii ø7
+          desired[2] = make(5, "min", "tetrad", true); // iv m7
+          desired[3] = make(7, "min", "tetrad", true); // v m7
+        } else {
+          desired[1] = make(2, "dim", "triad", false); // ii°
+          desired[2] = make(5, "min", "triad", false); // iv
+          desired[3] = make(7, "min", "triad", false); // v
+        }
+      }
+
+      let changed = false;
+      const next = prev.map((s, i) => {
+        if (i === 0) return s;
+        if (s?.enabled) return s;
+        const d = desired[i];
+        if (!d) return s;
+
+        for (const k of Object.keys(d)) {
+          if (s?.[k] !== d[k]) {
+            changed = true;
+            break;
+          }
+        }
+        return changed ? { ...s, ...d } : s;
+      });
+
+      return changed ? next : prev;
+    });
+  }, [
+    nearSlots?.[0]?.rootPc,
+    nearSlots?.[0]?.quality,
+    nearSlots?.[0]?.structure,
+    nearSlots?.[0]?.ext7,
+    nearSlots?.[0]?.spellPreferSharps,
+  ]);
+
 
   const spelledChordNotes = useMemo(
     () => spellScaleNotes({ rootPc: chordRootPc, scaleIntervals: chordIntervals, preferSharps: chordPreferSharps }),
@@ -2431,9 +2997,16 @@ export default function FretboardScalesPage() {
 
   function chordRoleOfPc(pc) {
     const interval = mod12(pc - chordRootPc);
+    const seventh = chordExt7 ? seventhOffsetForQuality(chordQuality) : null;
+
     if (interval === 0) return "root";
     if (interval === chordThirdOffset) return "third";
     if (interval === chordFifthOffset) return "fifth";
+    if (chordExt7 && seventh != null && interval === mod12(seventh)) return "seventh";
+    if (chordExt13 && interval === 9) return "thirteenth";
+    if (chordExt11 && interval === 5) return "eleventh";
+    if (chordExt9 && interval === 2) return "ninth";
+    if (chordExt6 && interval === 9) return "sixth";
     return "other";
   }
 
@@ -2471,7 +3044,7 @@ export default function FretboardScalesPage() {
 
   function labelForChordPc(pc) {
     const interval = mod12(pc - chordRootPc);
-    const itv = intervalToChordToken(interval, { ext9: chordExt9 && chordStructure === "chord", ext11: chordExt11 && chordStructure === "chord", ext13: chordExt13 && chordStructure === "chord" });
+    const itv = intervalToChordToken(interval, { ext6: chordExt6, ext9: chordExt9 && chordStructure !== "triad", ext11: chordExt11 && chordStructure !== "triad", ext13: chordExt13 && chordStructure !== "triad" });
     const note = chordPcToSpelledName(pc);
 
     const showI = !!showIntervalsLabel;
@@ -2697,27 +3270,28 @@ export default function FretboardScalesPage() {
     return m;
   }, [routeResult.path]);
 
-  function InlayMark({ fret, sIdx }) {
-    // Puntos tipo guitarra (inlays)
-    // - punto simple: entre cuerdas 3 y 4 (debajo de la 3ª)
-    // - doble punto (12/24): entre 2–3 y 4–5
-    const Dot = () => (
-      <div
-        className="pointer-events-none absolute left-1/2 -translate-x-1/2 h-5 w-5 rounded-full bg-slate-300 opacity-95"
-        style={{ bottom: -10, zIndex: 5 }}
-      />
+  function FretInlayRow({ kind }) {
+    const isDouble = kind === "double";
+    return (
+      <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
+        <div className="text-xs font-medium text-slate-700" />
+        {Array.from({ length: maxFret + 1 }, (_, fret) => {
+          const has = isDouble ? INLAY_DOUBLE.has(fret) : INLAY_SINGLE.has(fret);
+          return (
+            <div key={fret} className="relative flex h-4 items-center justify-center">
+              {has ? <div className="h-4 w-4 rounded-full bg-slate-300 opacity-95" /> : null}
+            </div>
+          );
+        })}
+      </div>
     );
-
-    if (INLAY_SINGLE.has(fret) && sIdx === 2) return <Dot />;
-    if (INLAY_DOUBLE.has(fret) && (sIdx === 1 || sIdx === 3)) return <Dot />;
-    return null;
   }
 
   function Circle({ pc, role, fret, sIdx, badge }) {
     const baseRole = role === "extra" ? "extra" : role;
     return (
       <div
-        className="relative z-10 inline-flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold"
+        className="relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold"
         style={circleStyle(baseRole)}
         title={`${pcToName(pc, preferSharps)} | ${intervalToDegreeToken(mod12(pc - rootPc))} | cuerda ${sIdx + 1}, traste ${fret}`}
       >
@@ -2733,13 +3307,13 @@ export default function FretboardScalesPage() {
 
   function ChordCircle({ pc, role, fret, sIdx, isBass }) {
     const baseRole = role;
-    const extraRing = isBass ? `inset 0 0 0 3px ${rgba(colors.route, 0.9)}` : "none";
+    const extraRing = isBass ? `inset 0 0 0 3px ${rgba("#000000", 0.9)}` : "none";
 
     return (
       <div
-        className="relative inline-flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold"
+        className="relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold"
         style={{ ...circleStyle(baseRole), boxShadow: `${circleStyle(baseRole).boxShadow}, ${extraRing}` }}
-        title={`${chordPcToSpelledName(pc)} | ${intervalToChordToken(mod12(pc - chordRootPc), { ext9: chordExt9 && chordStructure === "chord", ext11: chordExt11 && chordStructure === "chord", ext13: chordExt13 && chordStructure === "chord" })} | cuerda ${sIdx + 1}, traste ${fret}`}
+        title={`${chordPcToSpelledName(pc)} | ${intervalToChordToken(mod12(pc - chordRootPc), { ext6: chordExt6, ext9: chordExt9 && chordStructure !== "triad", ext11: chordExt11 && chordStructure !== "triad", ext13: chordExt13 && chordStructure !== "triad" })} | cuerda ${sIdx + 1}, traste ${fret}`}
       >
         {labelForChordPc(pc)}
         {isBass ? (
@@ -2754,45 +3328,41 @@ export default function FretboardScalesPage() {
   function ChordFretboard({ title, voicing, voicingIdx, voicingTotal }) {
     const cellMap = new Map();
     if (voicing?.notes) {
-      for (const n of voicing.notes) {
-        cellMap.set(`${n.sIdx}:${n.fret}`, n);
-      }
+      for (const n of voicing.notes) cellMap.set(`${n.sIdx}:${n.fret}`, n);
     }
 
     return (
-      <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+      <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
-            <div className="text-sm font-semibold text-slate-800">{title}</div>
-            <div className="text-xs text-slate-600">Notas: {spelledChordNotes.join(" – ")}</div>
-            <div className="text-xs text-slate-600">Digitación real (una nota por cuerda). Resalta tónica/3ª/5ª (B = bajo = nota más grave).</div>
+            <div className="text-sm font-semibold text-slate-800">
+              {title}
+              <span className="ml-2 text-xs font-semibold text-slate-800">
+                {chordDisplayNameFromUI({
+                  rootPc: chordRootPc,
+                  preferSharps: chordPreferSharps,
+                  quality: chordQuality,
+                  suspension: chordSuspension,
+                  structure: chordStructure,
+                  ext7: chordExt7,
+                  ext6: chordExt6,
+                  ext9: chordExt9,
+                  ext11: chordExt11,
+                  ext13: chordExt13,
+                })}
+              </span>
+            </div>
+            <div className="text-xs text-slate-600">Notas: {spelledChordNotes.join(" – ")} · Bajo marcado con anillo negro.</div>
           </div>
           <div className="text-xs text-slate-600">
             {voicing ? (
-              <>
-                Voicing <b>{voicingIdx + 1}</b>/{voicingTotal} · frets <b>{voicing.frets}</b>
-              </>
+              <span>
+                Voicing {Math.min(voicingIdx + 1, voicingTotal)}/{voicingTotal}: <b>{voicing.frets}</b>
+              </span>
             ) : (
-              <span className="font-semibold text-rose-600">No hay digitación tocable en 0–{maxFret} para esta inversión.</span>
+              <span className="font-semibold text-rose-600">No hay voicing</span>
             )}
           </div>
-        </div>
-
-        <div className="mb-3 space-y-1 text-xs text-slate-600">
-          <div>
-            Intervalos:{" "}
-            {chordIntervals
-              .map((i) =>
-                intervalToChordToken(i, {
-                  ext9: chordExt9 && chordStructure === "chord",
-                  ext11: chordExt11 && chordStructure === "chord",
-                  ext13: chordExt13 && chordStructure === "chord",
-                })
-              )
-              .join(" – ")}
-          </div>
-          <div>Notas: {spelledChordNotes.join(" – ")}</div>
-          <div className="text-[11px] text-slate-500">Si eliges Posición fundamental, el bajo (nota más grave) es la tónica.</div>
         </div>
 
         <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
@@ -2800,32 +3370,43 @@ export default function FretboardScalesPage() {
           {Array.from({ length: maxFret + 1 }, (_, fret) => (
             <div key={fret} className="relative flex flex-col items-center">
               <div className="text-[10px] text-slate-600">{fret}</div>
-              
             </div>
           ))}
         </div>
 
         <div className="mt-2 space-y-1">
           {STRINGS.map((st, sIdx) => (
-            <div key={st.label} className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
-              <div className="text-xs font-medium text-slate-700">{st.label}</div>
+            <React.Fragment key={st.label}>
+              <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
+                <div className="text-xs font-medium text-slate-700">{st.label}</div>
 
-              {Array.from({ length: maxFret + 1 }, (_, fret) => {
-                const cellKey = `${sIdx}:${fret}`;
-                const n = cellMap.get(cellKey);
-                const pc = n ? n.pc : mod12(st.pc + fret);
-                const inVoicing = !!n;
-                const role = inVoicing ? chordRoleOfPc(pc) : "other";
-                const isBass = inVoicing && voicing?.bassKey === cellKey;
+                {Array.from({ length: maxFret + 1 }, (_, fret) => {
+                  const cellKey = `${sIdx}:${fret}`;
+                  const n = cellMap.get(cellKey);
+                  const pc = n ? n.pc : mod12(st.pc + fret);
+                  const inVoicing = !!n;
+                  const role = inVoicing ? chordRoleOfPc(pc) : "other";
+                  const isBass = inVoicing && voicing?.bassKey === cellKey;
 
-                return (
-                  <div key={`${sIdx}-${fret}`} className={`relative flex h-10 overflow-visible items-center justify-center rounded-lg border ${fret === 0 ? "border-slate-300" : "border-slate-200"}`} style={{ backgroundColor: "#f8fafc" }}>
-                    <InlayMark fret={fret} sIdx={sIdx} />
-                    {inVoicing ? <ChordCircle pc={pc} role={role} fret={fret} sIdx={sIdx} isBass={isBass} /> : null}
-                  </div>
-                );
-              })}
-            </div>
+                  return (
+                    <div
+                      key={`${sIdx}-${fret}`}
+                      className={`relative flex h-8 overflow-visible items-center justify-center rounded-lg border ${
+                        fret === 0 ? "border-slate-300" : "border-slate-200"
+                      }`}
+                      style={{ backgroundColor: "#f8fafc" }}
+                    >
+                      {hasInlayCell(fret, sIdx) ? (
+                        <div className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2" style={{ bottom: "-10px" }}>
+                          <div className="h-4 w-4 rounded-full bg-slate-300 opacity-95" />
+                        </div>
+                      ) : null}
+                      {inVoicing ? <ChordCircle pc={pc} role={role} fret={fret} sIdx={sIdx} isBass={isBass} /> : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </React.Fragment>
           ))}
         </div>
       </section>
@@ -2851,11 +3432,18 @@ export default function FretboardScalesPage() {
 
     function slotRoleOfPc(pc, slot) {
       const interval = mod12(pc - slot.rootPc);
-      const third = slotThirdOffset(slot.quality);
-      const fifth = slotFifthOffset(slot.quality);
+      const third = slotThirdOffset(slot.quality, slot.suspension);
+      const fifth = slotFifthOffset(slot.quality, slot.suspension);
+      const seventh = slot.ext7 ? seventhOffsetForQuality(slot.quality) : null;
+
       if (interval === 0) return "root";
       if (interval === third) return "third";
       if (interval === fifth) return "fifth";
+      if (slot.ext7 && seventh != null && interval === mod12(seventh)) return "seventh";
+      if (slot.ext13 && interval === 9) return "thirteenth";
+      if (slot.ext11 && interval === 5) return "eleventh";
+      if (slot.ext9 && interval === 2) return "ninth";
+      if (slot.ext6 && interval === 9) return "sixth";
       return "other";
     }
 
@@ -2868,7 +3456,7 @@ export default function FretboardScalesPage() {
       return { backgroundImage: `linear-gradient(135deg, ${c1} 0%, ${c1} 50%, ${c2} 50%, ${c2} 100%)` };
     }
 
-    // Posicionamiento en esquinas SIN clases dinámicas (Tailwind no las compila si son variables).
+    // Posicionamiento en esquinas (cuando hay solape)
     function cornerStyle(n, idx) {
       const pad = 4;
       if (n === 2) return idx === 0 ? { left: pad, top: pad } : { right: pad, bottom: pad };
@@ -2886,13 +3474,14 @@ export default function FretboardScalesPage() {
       const bg = colors[role] || colors.other;
       const dark = isDark(bg);
 
-      const preferSharpsSlot = preferSharpsFromMajorTonicPc(nearSlots[slotIdx].rootPc);
+      const preferSharpsSlot = nearSlots[slotIdx]?.spellPreferSharps ?? preferSharpsFromMajorTonicPc(nearSlots[slotIdx].rootPc);
       const note = pcToName(pc, preferSharpsSlot);
       const interval = mod12(pc - nearSlots[slotIdx].rootPc);
       const tok = intervalToChordToken(interval, {
-        ext9: !!nearSlots[slotIdx].ext9 && nearSlots[slotIdx].structure === "chord",
-        ext11: !!nearSlots[slotIdx].ext11 && nearSlots[slotIdx].structure === "chord",
-        ext13: !!nearSlots[slotIdx].ext13 && nearSlots[slotIdx].structure === "chord",
+        ext6: !!nearSlots[slotIdx].ext6,
+        ext9: !!nearSlots[slotIdx].ext9 && nearSlots[slotIdx].structure !== "triad",
+        ext11: !!nearSlots[slotIdx].ext11 && nearSlots[slotIdx].structure !== "triad",
+        ext13: !!nearSlots[slotIdx].ext13 && nearSlots[slotIdx].structure !== "triad",
       });
 
       const showI = !!showIntervalsLabel;
@@ -2900,13 +3489,11 @@ export default function FretboardScalesPage() {
 
       return (
         <div
-          className={`relative z-10 inline-flex items-center justify-center rounded-full font-bold ${size === "s" ? "h-6 w-6 text-[9px]" : "h-7 w-7 text-[10px]"}`}
+          className={`relative z-20 inline-flex items-center justify-center rounded-full font-bold ${size === "s" ? "h-6 w-6 text-[9px]" : "h-7 w-7 text-[10px]"}`}
           style={{
             backgroundColor: bg,
             color: dark ? "#fff" : "#0f172a",
-            boxShadow: isBass
-              ? `inset 0 0 0 2px ${rgba(colors.route, 0.95)}`
-              : `0 0 0 1px ${rgba(bg, 0.35)}`,
+            boxShadow: isBass ? `inset 0 0 0 2px ${rgba("#000000", 0.95)}` : `0 0 0 1px ${rgba(bg, 0.35)}`,
           }}
           title={`${note} · ${tok} · cuerda ${sIdx + 1} traste ${fret}${isBass ? " · BAJO" : ""}`}
         >
@@ -2918,89 +3505,136 @@ export default function FretboardScalesPage() {
     const activeCount = nearSlots.filter((s) => s?.enabled).length;
 
     return (
-      <section className="mt-4 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+      <section className="mt-3 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
-            <div className="text-sm font-semibold text-slate-800">Mástil: acordes cercanos (todos)</div>
+            <div className="text-sm font-semibold text-slate-800">Mástil: acordes cercanos</div>
+            <div className="text-xs text-slate-600">Acordes de la escala de {harmonizedMajor.tonicName}{harmonizedMajor.modeLabel}: {harmonizedMajor.names.join(" · ")}</div>
+            <div className="text-xs text-slate-600">Fondo = color por acorde · círculos: colores por función (1/3/5/otras) · texto = nota/intervalo · anillo = bajo.</div>
+          </div>
+          <div className="flex flex-wrap items-end justify-end gap-3">
+            <div className="flex items-end gap-1.5">
+              <div className="text-xs font-semibold text-slate-700">Rango</div>
+              <button
+                type="button"
+                className={UI_BTN_SM}
+                title="Mover rango 1 traste a la izquierda"
+                onClick={() => setNearWindowStart((s) => Math.max(0, s - 1))}
+              >
+                ◀
+              </button>
+
+              <div className="flex items-end gap-1.5">
+                <div>
+                  <div className="text-[10px] font-semibold text-slate-600">Inicio</div>
+                  <input
+                    className={UI_INPUT_SM + " w-14"}
+                    value={nearFrom}
+                    onChange={(e) => setNearWindowStart(parseInt(e.target.value || "0", 10))}
+                  />
+                </div>
+                <div>
+                  <div className="text-[10px] font-semibold text-slate-600">Tamaño</div>
+                  <input
+                    className={UI_INPUT_SM + " w-14"}
+                    value={nearWindowSize}
+                    onChange={(e) => setNearWindowSize(parseInt(e.target.value || "1", 10))}
+                  />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className={UI_BTN_SM}
+                title="Mover rango 1 traste a la derecha"
+                onClick={() => setNearWindowStart((s) => Math.min(nearStartMax, s + 1))}
+              >
+                ▶
+              </button>
+
+              <div className="ml-1 text-xs text-slate-600 tabular-nums">
+                {nearFrom}–{nearTo}
+              </div>
+            </div>
+
             <div className="text-xs text-slate-600">
-              Fondo = color por acorde · círculos: colores por función (1/3/5/otras) · texto = nota/intervalo · anillo = bajo.
+              Activos: {activeCount ? nearSlots.map((s, i) => (s?.enabled ? `A${i + 1}` : null)).filter(Boolean).join(" · ") : "(ninguno)"}
             </div>
           </div>
-          <div className="text-xs text-slate-600">Activos: {activeCount ? nearSlots.map((s, i) => (s?.enabled ? `A${i + 1}` : null)).filter(Boolean).join(" · ") : "(ninguno)"}</div>
         </div>
 
+        {/* Cabecera de trastes */}
         <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
           <div className="text-xs font-semibold text-slate-600">Cuerda</div>
           {Array.from({ length: maxFret + 1 }, (_, fret) => (
             <div key={fret} className="relative flex flex-col items-center">
               <div className="text-[10px] text-slate-600">{fret}</div>
-              
             </div>
           ))}
         </div>
 
         <div className="mt-2 space-y-1">
           {STRINGS.map((st, sIdx) => (
-            <div key={st.label} className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
-              <div className="text-xs font-medium text-slate-700">{st.label}</div>
+            <React.Fragment key={st.label}>
+              <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
+                <div className="text-xs font-medium text-slate-700">{st.label}</div>
 
-              {Array.from({ length: maxFret + 1 }, (_, fret) => {
-                const cellKey = `${sIdx}:${fret}`;
-                const items = [];
-                for (let slotIdx = 0; slotIdx < 4; slotIdx++) {
-                  if (!nearSlots[slotIdx]?.enabled) continue;
-                  const n = slotNoteMaps[slotIdx].get(cellKey);
-                  if (!n) continue;
-                  const role = slotRoleOfPc(n.pc, nearSlots[slotIdx]);
-                  items.push({ slotIdx, pc: n.pc, isBass: n.isBass, role });
-                }
+                {Array.from({ length: maxFret + 1 }, (_, fret) => {
+                  const cellKey = `${sIdx}:${fret}`;
+                  const items = [];
+                  for (let slotIdx = 0; slotIdx < 4; slotIdx++) {
+                    if (!nearSlots[slotIdx]?.enabled) continue;
+                    const n = slotNoteMaps[slotIdx].get(cellKey);
+                    if (!n) continue;
+                    const role = slotRoleOfPc(n.pc, nearSlots[slotIdx]);
+                    items.push({ slotIdx, pc: n.pc, isBass: n.isBass, role });
+                  }
 
-                return (
-                  <div
-                    key={`${sIdx}-${fret}`}
-                    className={`relative flex h-10 overflow-visible items-center justify-center rounded-lg border ${fret === 0 ? "border-slate-300" : "border-slate-200"}`}
-                    style={{ backgroundColor: "#f8fafc", ...bgForCell(items) }}>
-                    <InlayMark fret={fret} sIdx={sIdx} />
-                    {items.length === 1 ? (
-                      <div className="pointer-events-none">
-                        <Mini
-                          size="m"
-                          slotIdx={items[0].slotIdx}
-                          pc={items[0].pc}
-                          isBass={items[0].isBass}
-                          role={items[0].role}
-                          fret={fret}
-                          sIdx={sIdx}
+                  return (
+                    <div
+                      key={`${sIdx}-${fret}`}
+                      className={`relative flex h-8 overflow-visible items-center justify-center rounded-lg border ${fret === 0 ? "border-slate-300" : "border-slate-200"}`}
+                      style={{ backgroundColor: "#f8fafc", ...bgForCell(items) }}
+                    >
+                      {hasInlayCell(fret, sIdx) ? (
+                        <div
+                          className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2"
+                          style={{ bottom: "-10px" }}
+                        >
+                          <div className="h-4 w-4 rounded-full bg-slate-300 opacity-95" />
+                        </div>
+                      ) : null}
+                      {fret >= nearFrom && fret <= nearTo ? (
+                        <div
+                          className="pointer-events-none absolute inset-0 z-[2] rounded-lg"
+                          style={{ backgroundColor: "rgba(15, 23, 42, 0.05)" }}
                         />
-                      </div>
-                    ) : items.length ? (
-                      <div className="absolute inset-0 pointer-events-none">
-                        {items
-                          .slice()
-                          .sort((a, b) => a.slotIdx - b.slotIdx)
-                          .slice(0, 4)
-                          .map((it, i2) => {
-                            const pos = cornerStyle(items.length, i2);
-                            return (
-                              <div key={`${it.slotIdx}-${it.role}`} className="absolute" style={pos}>
-                                <Mini
-                                  size="s"
-                                  slotIdx={it.slotIdx}
-                                  pc={it.pc}
-                                  isBass={it.isBass}
-                                  role={it.role}
-                                  fret={fret}
-                                  sIdx={sIdx}
-                                />
-                              </div>
-                            );
-                          })}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
+                      ) : null}
+                      {items.length === 1 ? (
+                        <div className="pointer-events-none">
+                          <Mini size="m" slotIdx={items[0].slotIdx} pc={items[0].pc} isBass={items[0].isBass} role={items[0].role} fret={fret} sIdx={sIdx} />
+                        </div>
+                      ) : items.length ? (
+                        <div className="absolute inset-0 pointer-events-none">
+                          {items
+                            .slice()
+                            .sort((a, b) => a.slotIdx - b.slotIdx)
+                            .slice(0, 4)
+                            .map((it, i2) => {
+                              const pos = cornerStyle(items.length, i2);
+                              return (
+                                <div key={`${it.slotIdx}-${it.role}-${i2}`} className="absolute" style={pos}>
+                                  <Mini size="s" slotIdx={it.slotIdx} pc={it.pc} isBass={it.isBass} role={it.role} fret={fret} sIdx={sIdx} />
+                                </div>
+                              );
+                            })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </React.Fragment>
           ))}
         </div>
       </section>
@@ -3012,12 +3646,33 @@ export default function FretboardScalesPage() {
     const showAllNotes = showNonScale && mode === "scale";
 
     return (
-      <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+      <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
             <div className="text-sm font-semibold text-slate-800">{title}</div>
             {subtitle ? <div className="text-xs text-slate-600">{subtitle}</div> : null}
           </div>
+
+          {mode === "patterns" ? (
+            <div className="flex items-center gap-2">
+              <div className="text-xs font-semibold text-slate-700">Modo patrones:</div>
+              <select
+                className={UI_SELECT_SM + " w-44"}
+                value={patternsMode}
+                onChange={(e) => setPatternsMode(e.target.value)}
+                title="Define el modo del mástil Patrones (Auto/Boxes/3NPS/CAGED)"
+              >
+                <option value="auto">Auto</option>
+                <option value="boxes" disabled={!(scaleIntervals.length === 5)}>
+                  Boxes (pentatónica)
+                </option>
+                <option value="nps" disabled={!(scaleIntervals.length === 7)}>
+                  3NPS
+                </option>
+                <option value="caged">CAGED</option>
+              </select>
+            </div>
+          ) : null}
 
           {mode === "route" ? (
             <div className="text-xs text-slate-600">
@@ -3032,82 +3687,85 @@ export default function FretboardScalesPage() {
           ) : null}
         </div>
 
-        <div
-          className="grid items-center gap-1"
-          style={{ gridTemplateColumns: fretGridCols(maxFret) }}
-        >
+        {/* Cabecera de trastes */}
+        <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
           <div className="text-xs font-semibold text-slate-600">Cuerda</div>
           {Array.from({ length: maxFret + 1 }, (_, fret) => (
             <div key={fret} className="relative flex flex-col items-center">
               <div className="text-[10px] text-slate-600">{fret}</div>
-              
             </div>
           ))}
         </div>
 
         <div className="mt-2 space-y-1">
           {STRINGS.map((st, sIdx) => (
-            <div
-              key={st.label}
-              className="grid items-center gap-1"
-              style={{ gridTemplateColumns: fretGridCols(maxFret) }}
-            >
-              <div className="text-xs font-medium text-slate-700">{st.label}</div>
+            <React.Fragment key={st.label}>
+              <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
+                <div className="text-xs font-medium text-slate-700">{st.label}</div>
 
-              {Array.from({ length: maxFret + 1 }, (_, fret) => {
-                const pc = mod12(st.pc + fret);
-                const inScale = scalePcs.has(pc);
-                const inExtra = showExtra && extraPcs.has(pc);
-                const displayRole = getDisplayRole({ pc, inScale, inExtra });
+                {Array.from({ length: maxFret + 1 }, (_, fret) => {
+                  const pc = mod12(st.pc + fret);
+                  const inScale = scalePcs.has(pc);
+                  const inExtra = showExtra && extraPcs.has(pc);
+                  const displayRole = getDisplayRole({ pc, inScale, inExtra });
 
-                const cellKey = `${sIdx}:${fret}`;
-                const bgPat = mode === "patterns" && inScale ? patternBgStyle(cellKey) : {};
+                  const cellKey = `${sIdx}:${fret}`;
+                  const bgPat = mode === "patterns" && inScale ? patternBgStyle(cellKey) : {};
 
-                const routeIdx = mode === "route" ? routeIndexByCell.get(cellKey) : null;
-                const inRoute = mode === "route" && routeIdx != null;
-                const bgRoute = inRoute
-                  ? {
-                      backgroundImage: `linear-gradient(0deg, ${rgba(colors.route, 0.28)} 0%, ${rgba(colors.route, 0.28)} 100%)`,
-                      boxShadow: `inset 0 0 0 2px ${rgba(colors.route, 0.9)}`,
-                    }
-                  : {};
-
-                const shouldRender = displayRole !== null || showAllNotes;
-
-                return (
-                  <div
-                    key={`${sIdx}-${fret}`}
-                    onClick={() => {
-                      // Selección rápida de inicio/fin SOLO en el mástil de ruta y sobre notas de la escala.
-                      if (mode !== "route") return;
-                      if (!inScale) return;
-                      const code = `${sIdx + 1}${fret}`;
-                      if (routePickNext === "start") {
-                        setRouteStartCode(code);
-                        setRoutePickNext("end");
-                      } else {
-                        setRouteEndCode(code);
-                        setRoutePickNext("start");
+                  const routeIdx = mode === "route" ? routeIndexByCell.get(cellKey) : null;
+                  const inRoute = mode === "route" && routeIdx != null;
+                  const bgRoute = inRoute
+                    ? {
+                        backgroundImage: `linear-gradient(0deg, ${rgba(colors.route, 0.28)} 0%, ${rgba(colors.route, 0.28)} 100%)`,
+                        boxShadow: `inset 0 0 0 2px ${rgba("#000000", 0.9)}`,
                       }
-                    }}
-                    className={`relative flex h-10 overflow-visible items-center justify-center rounded-lg border ${
-                      fret === 0 ? "border-slate-300" : "border-slate-200"
-                    } ${mode === "route" && inScale ? "cursor-pointer hover:ring-2 hover:ring-slate-300" : ""}`}
-                    style={{ backgroundColor: "#f8fafc", ...bgPat, ...bgRoute }}>
-                    <InlayMark fret={fret} sIdx={sIdx} />
-                    {shouldRender && displayRole ? (
-                      <Circle pc={pc} role={displayRole} fret={fret} sIdx={sIdx} badge={mode === "route" ? routeIdx : null} />
-                    ) : showAllNotes ? (
-                      <div className="text-[11px] text-slate-400">{labelForPc(pc)}</div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
+                    : {};
+
+                  const shouldRender = displayRole !== null || showAllNotes;
+
+                  return (
+                    <div
+                      key={`${sIdx}-${fret}`}
+                      onClick={() => {
+                        // Selección rápida de inicio/fin SOLO en el mástil de ruta y sobre notas de la escala.
+                        if (mode !== "route") return;
+                        if (!inScale) return;
+                        const code = `${sIdx + 1}${fret}`;
+                        if (routePickNext === "start") {
+                          setRouteStartCode(code);
+                          setRoutePickNext("end");
+                        } else {
+                          setRouteEndCode(code);
+                          setRoutePickNext("start");
+                        }
+                      }}
+                      className={`relative flex h-8 overflow-visible items-center justify-center rounded-lg border ${
+                        fret === 0 ? "border-slate-300" : "border-slate-200"
+                      } ${mode === "route" && inScale ? "cursor-pointer hover:ring-2 hover:ring-slate-300" : ""}`}
+                      style={{ backgroundColor: "#f8fafc", ...bgPat, ...bgRoute }}
+                    >
+                      {hasInlayCell(fret, sIdx) ? (
+                        <div
+                          className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2"
+                          style={{ bottom: "-10px" }}
+                        >
+                          <div className="h-4 w-4 rounded-full bg-slate-300 opacity-95" />
+                        </div>
+                      ) : null}
+                      {shouldRender && displayRole ? (
+                        <Circle pc={pc} role={displayRole} fret={fret} sIdx={sIdx} badge={mode === "route" ? routeIdx : null} />
+                      ) : showAllNotes ? (
+                        <div className="text-[10px] text-slate-400">{labelForPc(pc)}</div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </React.Fragment>
           ))}
         </div>
 
-        <div className="mt-4 space-y-1 text-xs text-slate-600">
+        <div className="mt-3 space-y-1 text-xs text-slate-600">
           <div>
             Escala activa ({pcToName(rootPc, preferSharps)}): {scaleIntervals.map((i) => intervalToDegreeToken(i)).join(" – ")}
           </div>
@@ -3137,351 +3795,101 @@ export default function FretboardScalesPage() {
         type="button"
         onClick={onClick}
         title={title || fallbackTitle}
-        className={`rounded-xl px-3 py-2 text-sm ring-1 ring-slate-200 shadow-sm ${active ? "bg-slate-900 text-white" : "bg-white"}`}
+        className={`rounded-xl px-2 py-1.5 text-sm ring-1 ring-slate-200 shadow-sm ${active ? "bg-slate-900 text-white" : "bg-white"}`}
       >
         {children}
       </button>
     );
   }
 
-  const wrap = "mx-auto max-w-[1500px] p-4";
+  const wrap = "mx-auto max-w-[1500px] p-3";
+
+  // UI compacto (especialmente para Acordes)
+  const UI_SELECT_SM = "h-7 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
+  const UI_SELECT_SM_TONE = "h-7 w-[60px] rounded-xl border border-slate-200 bg-white px-1 text-xs shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
+  const UI_BTN_SM = "h-7 w-7 rounded-xl border border-slate-200 bg-white text-xs font-semibold shadow-sm hover:bg-slate-100 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed";
+  const UI_INPUT_SM = "h-7 rounded-xl border border-slate-200 bg-white px-2 text-xs shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
+  const UI_LABEL_SM = "block text-[11px] font-semibold text-slate-700";
+  const UI_HELP_SM = "text-[11px] text-slate-500";
+  const UI_EXT_GRID = "mt-1 grid grid-cols-3 gap-x-3 gap-y-1 text-xs";
+
+  // Estado visual de ♭/♯ (solo para acordes): si la tónica es nota negra, resaltamos ♭ o ♯ según la ortografía.
+  const chordAccidental = !NATURAL_PCS.has(mod12(chordRootPc));
+
+  const scaleOptions = useMemo(() => Object.keys(SCALE_PRESETS), []);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 text-slate-900">
       <div className={wrap}>
-        <header className="mb-4">
-          <h1 className="text-2xl font-semibold">Mástil interactivo: escalas, patrones, rutas y acordes</h1>
+        <header className="mb-3">
+          <h1 className="text-xl font-semibold">Mástil interactivo: escalas, patrones, rutas y acordes</h1>
           <p className="text-sm text-slate-600">
             Patrones: <b>5 boxes</b> (pentatónicas), <b>7 3NPS</b> (7 notas) y <b>CAGED</b>. Ruta: sigue la escala en orden y se restringe a patrones.
           </p>
         </header>
 
-        <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
+        <div className="grid gap-3 lg:grid-cols-[1fr_380px]">
           {/* IZQUIERDA */}
           <div className="space-y-4">
-            {/* CONFIG */}
-            <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-              <div className="grid gap-3 md:grid-cols-12 items-start">
+            {/* CONFIG ESCALAS */}
+            <section className="rounded-2xl bg-white p-2 shadow-sm ring-1 ring-slate-200">
+              {/* fila 1: tónica · notación · escala · vista · trastes */}
+              <div className="flex flex-wrap items-end gap-3">
                 {/* Nota raíz */}
-                <div className="md:col-span-3">
-                  <label className="block text-sm font-medium">Nota raíz</label>
-                  <div className="mt-1 flex items-center gap-2">
-                    <select
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
-                      value={rootPc}
-                      onChange={(e) => setRootPc(parseInt(e.target.value, 10))}
-                    >
-                      {noteOptions.map((o) => (
-                        <option key={o.pc} value={o.pc}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-
-                    <button
-                      type="button"
-                      className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-sm font-semibold shadow-sm hover:bg-slate-50"
-                      title="Bajar 1 semitono"
-                      onClick={() => {
-                        setRootPc((pc) => mod12(pc - 1));
-                        setAccMode("flats");
-                      }}
-                    >
-                      ♭
-                    </button>
-                    <button
-                      type="button"
-                      className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-sm font-semibold shadow-sm hover:bg-slate-50"
-                      title="Subir 1 semitono"
-                      onClick={() => {
-                        setRootPc((pc) => mod12(pc + 1));
-                        setAccMode("sharps");
-                      }}
-                    >
-                      ♯
-                    </button>
-                  </div>
-                </div>
-
-                {/* Escala */}
-                <div className="md:col-span-5">
-                  <label className="block text-sm font-medium">Escala</label>
-                  <select
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
-                    value={scaleName}
-                    onChange={(e) => setScaleName(e.target.value)}
-                  >
-                    {Object.keys(SCALE_PRESETS).map((k) => (
-                      <option key={k} value={k}>
-                        {k}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Trastes */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium">Trastes</label>
-                  <select
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
-                    value={maxFret}
-                    onChange={(e) => setMaxFret(parseInt(e.target.value, 10))}
-                  >
-                    {[12, 15, 17, 19, 21, 24].map((n) => (
-                      <option key={n} value={n}>
-                        0–{n}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Vista */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium">Vista</label>
-                  <div className="mt-1 flex gap-2">
-                    <ToggleButton title="Muestra/oculta los nombres de nota (F, G, Ab…)." active={showNotesLabel} onClick={() => setShowNotesLabel((v) => !v)}>
-                      Notas
-                    </ToggleButton>
-                    <ToggleButton title="Muestra/oculta los intervalos (1, b3, 5…)." active={showIntervalsLabel} onClick={() => setShowIntervalsLabel((v) => !v)}>
-                      Intervalos
-                    </ToggleButton>
-                  </div>
-                  <div className="mt-1 text-[11px] text-slate-500">Si activas ambas: 1–F dentro del círculo.</div>
-                </div>
-
-                {scaleName === "Personalizada" ? (
-                  <div className="md:col-span-12">
-                    <label className="block text-sm font-medium">Intervalos (escala personalizada)</label>
-                    <input
-                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
-                      value={customInput}
-                      onChange={(e) => setCustomInput(e.target.value)}
-                      placeholder="Ej: 1 b3 5 6 (o semitonos: s0 s3 s7 s9)"
-                    />
-                    <div className="mt-1 text-[11px] text-slate-500">Admite grados (b3, #4), semitonos (s0–s11) o notas. La raíz siempre se añade.</div>
-                  </div>
-                ) : null}
-              </div>
-
-              {/* Notación / mostrar / extra */}
-              <div className="mt-4 grid gap-3 md:grid-cols-12 items-start">
-                <div className="md:col-span-4">
-                  <label className="block text-sm font-medium">Notación</label>
-                  <div className="mt-1 flex gap-2">
-                    <ToggleButton title="Notación automática: elige #/b según la armadura típica de la tonalidad." active={accMode === "auto"} onClick={() => setAccMode("auto")}>
-                      Auto
-                    </ToggleButton>
-                    <ToggleButton title="Forzar sostenidos (#) en los nombres de nota." active={accMode === "sharps"} onClick={() => setAccMode("sharps")}>
-                      #
-                    </ToggleButton>
-                    <ToggleButton title="Forzar bemoles (b) en los nombres de nota." active={accMode === "flats"} onClick={() => setAccMode("flats")}>
-                      b
-                    </ToggleButton>
-                  </div>
-                  <div className="mt-1 text-[11px] text-slate-500">Auto usa la armadura esperada (ej. F mayor ⇒ Bb, no A#).</div>
-                </div>
-
-                <div className="md:col-span-3">
-                  <label className="block text-sm font-medium">Mostrar</label>
-                  <div className="mt-1 flex gap-2">
-                    <ToggleButton title="Muestra también las notas que NO pertenecen a la escala (en gris)." active={showNonScale} onClick={() => setShowNonScale((v) => !v)}>
-                      Ver todo
-                    </ToggleButton>
-                    <ToggleButton title="Activa/desactiva el resaltado de ‘Notas extra’ (se pintan con el color de extra)." active={showExtra} onClick={() => setShowExtra((v) => !v)}>
-                      {showExtra ? "Extra ON" : "Extra OFF"}
-                    </ToggleButton>
-                  </div>
-                </div>
-
-                <div className="md:col-span-5">
-                  <label className="block text-sm font-medium">Notas extra</label>
-                  <input
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300"
-                    value={extraInput}
-                    onChange={(e) => setExtraInput(e.target.value)}
-                    placeholder="Ej: b2"
-                  />
-                </div>
-              </div>
-
-              {/* Ruta */}
-              <div className="mt-4 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <div className="text-sm font-semibold text-slate-800">Ruta musical</div>
-                  <div className="text-xs text-slate-600">Click en el mástil de ruta para elegir: <b>{routePickNext === "start" ? "Inicio" : "Fin"}</b></div>
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-12 items-end">
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-semibold text-slate-700">Inicio</label>
-                    <input
-                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
-                      value={routeStartCode}
-                      onChange={(e) => setRouteStartCode(e.target.value)}
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-semibold text-slate-700">Fin</label>
-                    <input
-                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
-                      value={routeEndCode}
-                      onChange={(e) => setRouteEndCode(e.target.value)}
-                    />
-                  </div>
-                  <div className="md:col-span-3">
-                    <label className="block text-xs font-semibold text-slate-700">Máx. notas seguidas/cuerda</label>
-                    <select
-                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
-                      value={routeMaxPerString}
-                      onChange={(e) => setRouteMaxPerString(parseInt(e.target.value, 10))}
-                    >
-                      {[1, 2, 3, 4, 5].map((n) => (
-                        <option key={n} value={n}>
-                          {n}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="md:col-span-3">
-                    <label className="block text-xs font-semibold text-slate-700">Modo ruta</label>
-                    <select
-                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
-                      value={routeMode}
-                      onChange={(e) => setRouteMode(e.target.value)}
-                    >
-                      <option value="auto">Auto</option>
-                      <option value="free">Libre</option>
-                      <option value="pos">Posición/diagonal</option>
-                      {isPentatonicScale ? <option value="penta">Pentatónica (boxes)</option> : null}
-                      {!isPentatonicScale && scaleIntervals.length === 7 ? <option value="nps">3NPS</option> : null}
-                      <option value="caged">CAGED</option>
-                    </select>
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-semibold text-slate-700">Patrón</label>
-                    <select
-                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
-                      value={routeFixedPattern}
-                      onChange={(e) => setRouteFixedPattern(e.target.value)}
-                    >
-                      <option value="auto">Auto</option>
-                      {Array.from({ length: scaleIntervals.length === 7 ? 7 : scaleIntervals.length === 5 ? 5 : 0 }, (_, i) => (
-                        <option key={i} value={String(i)}>
-                          {scaleIntervals.length === 7 ? `3NPS ${i + 1}` : `Patrón ${i + 1}`}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <ToggleButton title="Prioriza una digitación tipo NPS (2 notas/cuerda en pentas, 3 notas/cuerda en 7 notas). Penaliza cambios de cuerda ‘demasiado pronto’." active={routePreferNps} onClick={() => setRoutePreferNps((v) => !v)}>
-                    Preferir NPS
-                  </ToggleButton>
-                  <ToggleButton title="Prioriza moverse ‘vertical’: cambiar de cuerda con saltos pequeños de traste (más realista al bajar/subir por el mástil)." active={routePreferVertical} onClick={() => setRoutePreferVertical((v) => !v)}>
-                    Preferir vertical
-                  </ToggleButton>
-                  <ToggleButton title="Intenta mantener la MISMA instancia de patrón (box/3NPS/CAGED) si existe continuidad; evita ‘teletransportes’ entre copias del patrón." active={routeKeepPattern} onClick={() => setRouteKeepPattern((v) => !v)}>
-                    Mantener patrón
-                  </ToggleButton>
-                  <ToggleButton title="Permite cambiar de patrón durante la ruta. Si lo desactivas, la ruta se fuerza a un único patrón y puede no existir." active={allowPatternSwitch} onClick={() => setAllowPatternSwitch((v) => !v)}>
-                    Permite cambio patrón
-                  </ToggleButton>
-
-                  <div className="ml-auto flex items-center gap-2">
-                    <span className="text-xs font-semibold text-slate-700">Coste cambio</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={8}
-                      step={0.5}
-                      value={patternSwitchPenalty}
-                      onChange={(e) => setPatternSwitchPenalty(parseFloat(e.target.value))}
-                    />
-                    <span className="text-xs text-slate-600 w-10 text-right">{patternSwitchPenalty.toFixed(1)}</span>
-                  </div>
-                </div>
-
-                <div className="mt-2 text-[11px] text-slate-500">La ruta recorre la escala en orden (asc/desc) y minimiza movimientos. En modo patrón, restringe a boxes/3NPS/CAGED.</div>
-              </div>
-
-              {/* Toggles de mástiles */}
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <div className="text-sm font-semibold text-slate-800">Mástiles:</div>
-                <ToggleButton title="Muestra/oculta el mástil de la escala." active={showBoards.scale} onClick={() => setShowBoards((s) => ({ ...s, scale: !s.scale }))}>
-                  Escala
-                </ToggleButton>
-                <ToggleButton title="Muestra/oculta el mástil de patrones (fondos por patrón)." active={showBoards.patterns} onClick={() => setShowBoards((s) => ({ ...s, patterns: !s.patterns }))}>
-                  Patrones
-                </ToggleButton>
-                <ToggleButton title="Muestra/oculta el mástil de ruta calculada." active={showBoards.route} onClick={() => setShowBoards((s) => ({ ...s, route: !s.route }))}>
-                  Ruta
-                </ToggleButton>
-                <ToggleButton title="Muestra/oculta el panel de acordes (voicings y acordes cercanos)." active={showBoards.chords} onClick={() => setShowBoards((s) => ({ ...s, chords: !s.chords }))}>
-                  Acordes
-                </ToggleButton>
-
-                <div className="ml-auto flex items-center gap-2">
-                  <div className="text-sm font-semibold text-slate-800">Modo patrones:</div>
-                  <select
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
-                    value={patternsMode}
-                    onChange={(e) => setPatternsMode(e.target.value)}
-                  >
-                    <option value="auto">Auto</option>
-                    <option value="boxes">Boxes</option>
-                    <option value="nps">3NPS</option>
-                    <option value="caged">CAGED</option>
-                  </select>
-                </div>
-              </div>
-            </section>
-
-            {showBoards.scale ? <Fretboard title="Mástil" subtitle="Escala + (opcional) extras. Resalta raíz/3ª/5ª." mode="scale" /> : null}
-            {showBoards.patterns ? <Fretboard title="Patrones" subtitle="Fondo indica patrón (Boxes / 3NPS / CAGED)." mode="patterns" /> : null}
-            {showBoards.route ? <Fretboard title="Ruta" subtitle="Ruta musical restringida a patrones (o libre)." mode="route" /> : null}
-
-            {/* ACORDES */}
-            {showBoards.chords ? (
-              <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-                <div className="mb-2">
-                  <div className="text-sm font-semibold text-slate-800">Acordes</div>
-                  <div className="text-xs text-slate-600">Panel independiente (no afecta a escalas/rutas). B = bajo (nota más grave del voicing).</div>
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-12 items-end">
-                  <div className="md:col-span-4">
-                    <label className="block text-xs font-semibold text-slate-700">Tono</label>
-                    <div className="mt-1 flex items-center gap-2">
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <label className={UI_LABEL_SM}>Nota raíz</label>
+                    <div className="mt-1 flex items-center gap-1.5">
                       <select
-                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"
-                        value={chordRootPc}
-                        onChange={(e) => setChordRootPc(parseInt(e.target.value, 10))}
+                        className={UI_SELECT_SM_TONE}
+                        value={scaleRootLetter}
+                        onChange={(e) => {
+                          const letter = e.target.value;
+                          if (!Object.prototype.hasOwnProperty.call(NATURAL_PC, letter)) return;
+                          setScaleRootLetter(letter);
+                          setScaleRootAcc(null);
+                          setRootPc(mod12(NATURAL_PC[letter]));
+                        }}
+                        title="Tónica (letra)"
                       >
-                        {NOTES_SHARP.map((n, pc) => (
-                          <option key={pc} value={pc}>
-                            {n}{NOTES_FLAT[pc] !== n ? ` / ${NOTES_FLAT[pc]}` : ""}
+                        {LETTERS.map((l) => (
+                          <option key={l} value={l}>
+                            {l}
                           </option>
                         ))}
                       </select>
+
                       <button
                         type="button"
-                        className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-sm font-semibold shadow-sm hover:bg-slate-50"
-                        title="Bajar 1 semitono"
+                        className={`${UI_BTN_SM} ${scaleRootAcc === "flat" ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
+                        title="Bajar 1 semitono (♭). Si ya está alterado, vuelve a natural."
                         onClick={() => {
-                          setChordRootPc((pc) => mod12(pc - 1));
-                          setChordAccMode("flats");
+                          const nat = mod12(NATURAL_PC[scaleRootLetter]);
+                          if (scaleRootAcc === "flat") {
+                            setScaleRootAcc(null);
+                            setRootPc(nat);
+                            return;
+                          }
+                          setScaleRootAcc("flat");
+                          setRootPc(mod12(nat - 1));
                         }}
                       >
                         ♭
                       </button>
+
                       <button
                         type="button"
-                        className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-sm font-semibold shadow-sm hover:bg-slate-50"
-                        title="Subir 1 semitono"
+                        className={`${UI_BTN_SM} ${scaleRootAcc === "sharp" ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
+                        title="Subir 1 semitono (♯). Si ya está alterado, vuelve a natural."
                         onClick={() => {
-                          setChordRootPc((pc) => mod12(pc + 1));
-                          setChordAccMode("sharps");
+                          const nat = mod12(NATURAL_PC[scaleRootLetter]);
+                          if (scaleRootAcc === "sharp") {
+                            setScaleRootAcc(null);
+                            setRootPc(nat);
+                            return;
+                          }
+                          setScaleRootAcc("sharp");
+                          setRootPc(mod12(nat + 1));
                         }}
                       >
                         ♯
@@ -3489,426 +3897,787 @@ export default function FretboardScalesPage() {
                     </div>
                   </div>
 
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-semibold text-slate-700">Calidad</label>
-                    <select className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm" value={chordQuality} onChange={(e) => setChordQuality(e.target.value)}>
-                      {CHORD_QUALITIES.map((q) => (
-                        <option key={q.value} value={q.value}>
-                          {q.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <label className="block text-xs font-semibold text-slate-700">Estructura</label>
-                    <select className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm" value={chordStructure} onChange={(e) => setChordStructure(e.target.value)}>
-                      {CHORD_STRUCTURES.map((s) => (
-                        <option key={s.value} value={s.value}>
-                          {s.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="md:col-span-4">
-                    <label className="block text-xs font-semibold text-slate-700">Inversión</label>
-                    <select className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm" value={chordInversion} onChange={(e) => setChordInversion(e.target.value)}>
-                      {CHORD_INVERSIONS.map((inv) => (
-                        <option key={inv.value} value={inv.value}>
-                          {inv.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="md:col-span-12">
-                    <label className="block text-xs font-semibold text-slate-700">Extensiones</label>
-                    <div className="mt-2 flex flex-wrap gap-4 text-sm">
-                      <label className="inline-flex items-center gap-2">
-                        <input type="checkbox" checked={chordExt7} onChange={(e) => setChordExt7(e.target.checked)} />7
-                      </label>
-                      <label className="inline-flex items-center gap-2">
-                        <input type="checkbox" checked={chordExt9} disabled={chordStructure !== "chord"} onChange={(e) => setChordExt9(e.target.checked)} />9
-                      </label>
-                      <label className="inline-flex items-center gap-2">
-                        <input type="checkbox" checked={chordExt11} disabled={chordStructure !== "chord"} onChange={(e) => setChordExt11(e.target.checked)} />11
-                      </label>
-                      <label className="inline-flex items-center gap-2">
-                        <input type="checkbox" checked={chordExt13} disabled={chordStructure !== "chord"} onChange={(e) => setChordExt13(e.target.checked)} />13
-                      </label>
-                      {chordDbLastUrl ? (
-                        <a className="text-xs text-slate-600 underline" href={chordDbLastUrl} target="_blank" rel="noreferrer">
-                          Abrir JSON
-                        </a>
-                      ) : null}
-                    </div>
-                    <div className="mt-1 text-[11px] text-slate-500">Triada: 1–3–5 · Cuatriada: 1–3–5–7 · Acorde: +9/11/13 (dataset si aplica)</div>
-                  </div>
-
-                  <div className="md:col-span-12">
-                    <div className="mt-2 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-sm font-semibold text-slate-800">Voicings</div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-sm font-semibold shadow-sm hover:bg-slate-50"
-                            onClick={() => setChordVoicingIdx((i) => Math.max(0, i - 1))}
-                            disabled={chordVoicings.length === 0}
-                          >
-                            ◀
-                          </button>
-                          <select
-                            className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm shadow-sm"
-                            value={chordVoicingIdx}
-                            onChange={(e) => setChordVoicingIdx(parseInt(e.target.value, 10))}
-                            disabled={chordVoicings.length === 0}
-                          >
-                            {chordVoicings.map((v, i) => (
-                              <option key={v.frets + i} value={i}>
-                                {i + 1}. {v.frets} (span {v.span})
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-sm font-semibold shadow-sm hover:bg-slate-50"
-                            onClick={() => setChordVoicingIdx((i) => Math.min(chordVoicings.length - 1, i + 1))}
-                            disabled={chordVoicings.length === 0}
-                          >
-                            ▶
-                          </button>
-                        </div>
-                      </div>
-                      {chordDbError ? <div className="mt-2 text-xs font-semibold text-rose-600">{chordDbError}</div> : null}
-                    </div>
-
-                    <div className="mt-3">
-                      <ChordFretboard title="Acorde" voicing={activeChordVoicing} voicingIdx={chordVoicingIdx} voicingTotal={chordVoicings.length} />
+                  {/* Notación */}
+                  <div>
+                    <div className={UI_LABEL_SM}>Notación</div>
+                    <div className="mt-1 flex gap-1.5">
+                      <ToggleButton
+                        active={accMode === "auto"}
+                        onClick={() => setAccMode("auto")}
+                        title="Auto usa la armadura esperada (ej. F mayor → Bb, no A#)."
+                      >
+                        Auto
+                      </ToggleButton>
+                      <ToggleButton active={accMode === "sharps"} onClick={() => setAccMode("sharps")} title="Forzar sostenidos">
+                        #
+                      </ToggleButton>
+                      <ToggleButton active={accMode === "flats"} onClick={() => setAccMode("flats")} title="Forzar bemoles">
+                        b
+                      </ToggleButton>
                     </div>
                   </div>
                 </div>
 
-                {/* Acordes cercanos */}
-                <div className="mt-6 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
-                  <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+                {/* Escala */}
+                <div className="min-w-[260px] flex-1">
+                  <label className={UI_LABEL_SM}>Escala</label>
+                  <select
+                    className={UI_SELECT_SM + " mt-1"}
+                    value={scaleName}
+                    onChange={(e) => setScaleName(e.target.value)}
+                    title="Selecciona una escala/preset"
+                  >
+                    {scaleOptions.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Vista */}
+                <div>
+                  <div className={UI_LABEL_SM}>Vista</div>
+                  <div className="mt-1 flex gap-1.5">
+                    <ToggleButton active={showNotesLabel} onClick={() => setShowNotesLabel((v) => !v)} title="Muestra nombre de la nota">
+                      Notas
+                    </ToggleButton>
+                    <ToggleButton active={showIntervalsLabel} onClick={() => setShowIntervalsLabel((v) => !v)} title="Muestra grado/intervalo">
+                      Intervalos
+                    </ToggleButton>
+                  </div>
+                </div>
+
+                {/* Trastes */}
+                <div className="min-w-[130px]">
+                  <label className={UI_LABEL_SM}>Trastes</label>
+                  <select
+                    className={UI_SELECT_SM + " mt-1"}
+                    value={maxFret}
+                    onChange={(e) => setMaxFret(parseInt(e.target.value, 10))}
+                    title="Rango de trastes"
+                  >
+                    {[12, 15, 18, 21, 24].map((n) => (
+                      <option key={n} value={n}>
+                        0–{n}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* fila 2: personalizada · extras · mástiles */}
+              {scaleName === "Personalizada" ? (
+                <div className="mt-2">
+                  <div className={UI_LABEL_SM}>Intervalos personalizados</div>
+                  <input
+                    className={UI_INPUT_SM + " mt-1 w-full"}
+                    value={customInput}
+                    onChange={(e) => setCustomInput(e.target.value)}
+                    placeholder="Ej: 1 b3 5 6"
+                    title="Introduce intervalos (1–7 con b/#), notas (F, Ab, C#) o semitonos (s3)"
+                  />
+                </div>
+              ) : null}
+
+              <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
+                <div className="min-w-[320px] flex-1">
+                  <div className={UI_LABEL_SM}>Notas extra</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <input
+                      className={UI_INPUT_SM + " flex-1"}
+                      value={extraInput}
+                      onChange={(e) => setExtraInput(e.target.value)}
+                      placeholder="Ej: b2"
+                      title="Notas/intervalos a resaltar como extra"
+                    />
+                    <ToggleButton active={showExtra} onClick={() => setShowExtra((v) => !v)} title="Activa/desactiva las notas extra">
+                      {showExtra ? "Extra ON" : "Extra OFF"}
+                    </ToggleButton>
+                    <ToggleButton active={showNonScale} onClick={() => setShowNonScale((v) => !v)} title="Muestra todas las notas (no solo escala)">
+                      Ver todo
+                    </ToggleButton>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-xs font-semibold text-slate-700">Mástiles:</div>
+                  <ToggleButton active={showBoards.scale} onClick={() => setShowBoards((s) => ({ ...s, scale: !s.scale }))} title="Muestra el mástil de la escala">
+                    Escala
+                  </ToggleButton>
+                  <ToggleButton active={showBoards.patterns} onClick={() => setShowBoards((s) => ({ ...s, patterns: !s.patterns }))} title="Muestra el mástil de patrones">
+                    Patrones
+                  </ToggleButton>
+                  <ToggleButton active={showBoards.route} onClick={() => setShowBoards((s) => ({ ...s, route: !s.route }))} title="Muestra el mástil de ruta">
+                    Ruta
+                  </ToggleButton>
+                  <ToggleButton active={showBoards.chords} onClick={() => setShowBoards((s) => ({ ...s, chords: !s.chords }))} title="Muestra el panel de acordes">
+                    Acordes
+                  </ToggleButton>
+                  </div>
+              </div>
+            </section>
+
+            {/* MÁSTILES */}
+            <div className="space-y-3">
+              {showBoards.scale ? <Fretboard title="Escala" subtitle="Escala + (opcional) extras. Resalta raíz/3ª/5ª." mode="scale" /> : null}
+              {showBoards.patterns ? <Fretboard title="Patrones" subtitle="Fondo indica patrón." mode="patterns" /> : null}
+              {showBoards.route ? (
+                <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+                  <div className="flex flex-wrap items-end justify-between gap-2">
+                    <div className="text-sm font-semibold text-slate-800">Ruta musical</div>
+                  </div>
+                  <div className="mt-2 grid gap-2 lg:grid-cols-[150px_150px_220px_220px_220px]">
                     <div>
-                      <div className="text-sm font-semibold text-slate-800">Acordes cercanos</div>
-                      <div className="text-xs text-slate-600">Selecciona hasta 4 acordes y busca digitaciones dentro de un rango. Ordena por cercanía al Acorde 1.</div>
+                      <label className={UI_LABEL_SM}>Inicio</label>
+                      <input className={UI_INPUT_SM + " mt-1 w-full"} value={routeStartCode} onChange={(e) => setRouteStartCode(e.target.value)} />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs font-semibold text-slate-700">Rango</label>
-                      <input className="h-10 w-16 rounded-xl border border-slate-200 bg-white px-3 text-sm" value={nearFretFrom} onChange={(e) => setNearFretFrom(parseInt(e.target.value, 10) || 0)} />
-                      <span className="text-xs text-slate-600">–</span>
-                      <input className="h-10 w-16 rounded-xl border border-slate-200 bg-white px-3 text-sm" value={nearFretTo} onChange={(e) => setNearFretTo(parseInt(e.target.value, 10) || 0)} />
+                    <div>
+                      <label className={UI_LABEL_SM}>Fin</label>
+                      <input className={UI_INPUT_SM + " mt-1 w-full"} value={routeEndCode} onChange={(e) => setRouteEndCode(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className={UI_LABEL_SM}>Máx. notas seguidas/cuerda</label>
+                      <select className={UI_SELECT_SM + " mt-1"} value={routeMaxPerString} onChange={(e) => setRouteMaxPerString(parseInt(e.target.value, 10))}>
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className={UI_LABEL_SM}>Modo ruta</label>
+                      <select className={UI_SELECT_SM + " mt-1"} value={routeMode} onChange={(e) => setRouteMode(e.target.value)}>
+                        <option value="auto">Auto</option>
+                        <option value="free">Libre</option>
+                        <option value="pos">Posición/diagonal (slide)</option>
+                        <option value="nps">3NPS</option>
+                        <option value="penta">Pentatónica (boxes)</option>
+                        <option value="caged">CAGED</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={UI_LABEL_SM}>Patrón</label>
+                      <select className={UI_SELECT_SM + " mt-1"} value={routeFixedPattern} onChange={(e) => setRouteFixedPattern(e.target.value)}>
+                        <option value="auto">Auto</option>
+                        {Array.from({ length: 7 }, (_, i) => i).map((i) => (
+                          <option key={i} value={String(i)}>
+                            {routeMode === "penta" ? `Box ${i + 1}` : routeMode === "caged" ? `CAGED ${i + 1}` : `Patrón ${i + 1}`}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
 
-                  <div className="space-y-3">
-                    {nearSlots.map((slot, idx) => {
-                      const isBase = idx === 0;
-                      const ranked = nearComputed.ranked[idx]?.ranked || [];
-                      const err = nearComputed.ranked[idx]?.err || null;
-                      const preferSharpsSlot = preferSharpsFromMajorTonicPc(slot.rootPc);
-                      const intervals = buildSlotIntervals(slot);
-                      const slotSpelled = spellScaleNotes({ rootPc: slot.rootPc, scaleIntervals: intervals, preferSharps: preferSharpsSlot });
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <ToggleButton active={routePreferNps} onClick={() => setRoutePreferNps((v) => !v)} title="Penaliza cambios de cuerda si aún no completas NPS">
+                      Preferir NPS
+                    </ToggleButton>
+                    <ToggleButton active={routePreferVertical} onClick={() => setRoutePreferVertical((v) => !v)} title="Empuja a resolver bajando/subiendo en vertical si es viable">
+                      Preferir vertical
+                    </ToggleButton>
+                    <ToggleButton active={routeKeepPattern} onClick={() => setRouteKeepPattern((v) => !v)} title="Intenta mantener la misma instancia de patrón si es posible">
+                      Mantener patrón
+                    </ToggleButton>
+                    <ToggleButton active={allowPatternSwitch} onClick={() => setAllowPatternSwitch((v) => !v)} title="Permite cambiar de patrón durante la ruta">
+                      Permite cambio patrón
+                    </ToggleButton>
 
-                      return (
-                        <div key={idx} className={`rounded-2xl border border-slate-200 p-3 ${slot.enabled ? "bg-white" : "bg-slate-50 opacity-70"}`}>
-                          <div className="mb-2 flex items-center justify-between gap-2">
-                            <div className="text-sm font-semibold text-slate-800">
-                              Acorde {idx + 1} {isBase ? "(base)" : ""}
-                              <span className="ml-2 text-xs font-normal text-slate-600">(Notas: {slotSpelled.join(", ")})</span>
-                            </div>
+                    <div className="ml-2 flex items-center gap-2 text-xs text-slate-700">
+                      <span className="font-semibold">Coste cambio</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={6}
+                        step={0.5}
+                        value={patternSwitchPenalty}
+                        onChange={(e) => setPatternSwitchPenalty(parseFloat(e.target.value))}
+                      />
+                      <span className="tabular-nums">{patternSwitchPenalty.toFixed(1)}</span>
+                    </div>
+                  </div>
 
-                            <div className="flex items-center gap-3">
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-slate-600">Fondo</span>
-                                <input
-                                  type="color"
-                                  value={nearBgColors[idx] || "#e2e8f0"}
-                                  onChange={(e) => setNearBgColor(idx, e.target.value)}
-                                  className="h-8 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
-                                  title={`Color fondo Acorde ${idx + 1}`}
-                                />
-                              </div>
+                  <div className="mt-2 text-[11px] text-slate-500">Click en el mástil de ruta para elegir: {routePickNext === "start" ? "Inicio" : "Fin"}.</div>
+                </section>
+              ) : null}
+              {showBoards.route ? <Fretboard title="Ruta" subtitle="Ruta musical restringida a patrones (o libre)." mode="route" /> : null}
 
-                              {!isBase ? (
-                                <label className="inline-flex items-center gap-2 text-sm">
-                                  <input
-                                    type="checkbox"
-                                    checked={!!slot.enabled}
-                                    onChange={(e) => {
-                                      const on = e.target.checked;
-                                      setNearSlots((prev) => {
-                                        const next = [...prev];
-                                        next[idx] = { ...next[idx], enabled: on };
-                                        return next;
-                                      });
-                                    }}
-                                  />
-                                  Activo
-                                </label>
-                              ) : null}
-                            </div>
+              {showBoards.chords ? (
+                <div className="space-y-3">
+                  {/* ACORDES (principal) */}
+                  <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+                    <div className="flex flex-wrap items-end justify-between gap-2">
+                      <div className="text-sm font-semibold text-slate-800">
+                        Acordes
+                        <span className="ml-2 text-sm font-semibold text-slate-800">
+                          {chordDisplayNameFromUI({
+                            rootPc: chordRootPc,
+                            preferSharps: chordPreferSharps,
+                            quality: chordQuality,
+                            suspension: chordSuspension,
+                            structure: chordStructure,
+                            ext7: chordExt7,
+                            ext6: chordExt6,
+                            ext9: chordExt9,
+                            ext11: chordExt11,
+                            ext13: chordExt13,
+                          })}
+                        </span>
+                        <span className="ml-2 text-xs font-normal text-slate-600">(Notas: {spelledChordNotes.join(", ")})</span>
+                      </div>
+                    </div>
+                    <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="grid items-end gap-2 lg:grid-cols-[96px_210px_90px_200px_130px_280px]">
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM}>Tono</label>
+                          <div className="mt-1 flex items-center gap-1.5">
+                            <select
+                              className={UI_SELECT_SM_TONE}
+                              value={chordUiLetterFromPc(chordRootPc, !!chordSpellPreferSharps)}
+                              onChange={(e) => {
+                                const letter = e.target.value;
+                                if (Object.prototype.hasOwnProperty.call(NATURAL_PC, letter)) {
+                                  setChordRootPc(mod12(NATURAL_PC[letter]));
+                                }
+                              }}
+                            >
+                              {LETTERS.map((l) => (
+                                <option key={l} value={l}>
+                                  {l}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              className={`${UI_BTN_SM} ${chordAccidental && !chordSpellPreferSharps ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
+                              title="Bajar 1 semitono"
+                              onClick={() => {
+                                const letter = chordUiLetterFromPc(chordRootPc, false); // fuerza letra desde bemoles
+                                const nat = mod12(NATURAL_PC[letter]);
+                                const cur = mod12(chordRootPc);
+                                if (cur !== nat) {
+                                  // Si ya había alteración, vuelve a natural (sin “caminar” a otra letra)
+                                  setChordRootPc(nat);
+                                  setChordSpellPreferSharps(false);
+                                  return;
+                                }
+                                setChordRootPc(mod12(nat - 1));
+                                setChordSpellPreferSharps(false);
+                              }}
+                            >
+                              ♭
+                            </button>
+                            <button
+                              type="button"
+                              className={`${UI_BTN_SM} ${chordAccidental && chordSpellPreferSharps ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
+                              title="Subir 1 semitono"
+                              onClick={() => {
+                                const letter = chordUiLetterFromPc(chordRootPc, true); // fuerza letra desde sostenidos
+                                const nat = mod12(NATURAL_PC[letter]);
+                                const cur = mod12(chordRootPc);
+                                if (cur !== nat) {
+                                  // Si ya había alteración, vuelve a natural (sin “caminar” a otra letra)
+                                  setChordRootPc(nat);
+                                  setChordSpellPreferSharps(true);
+                                  return;
+                                }
+                                setChordRootPc(mod12(nat + 1));
+                                setChordSpellPreferSharps(true);
+                              }}
+                            >
+                              ♯
+                            </button>
+                          </div>
+                          
+                        </div>
+
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM}>Calidad / Sus</label>
+                          <div className="mt-1 grid grid-cols-2 gap-1.5">
+                            <select className={UI_SELECT_SM} value={chordQuality} onChange={(e) => setChordQuality(e.target.value)}>
+                              {CHORD_QUALITIES.map((q) => (
+                                <option key={q.value} value={q.value}>
+                                  {q.label}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              className={UI_SELECT_SM}
+                              value={chordSuspension}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setChordSuspension(v);
+                                if (v !== "none" && (chordQuality === "dim" || chordQuality === "hdim")) setChordQuality("maj");
+                              }}
+                              title="Suspensión: reemplaza la 3ª por 2ª o 4ª"
+                            >
+                              <option value="none">Sus —</option>
+                              <option value="sus2">sus2</option>
+                              <option value="sus4">sus4</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM}>Estructura</label>
+                          <select
+                            className={UI_SELECT_SM}
+                            value={chordStructure}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setChordStructure(val);
+                              if (val === "triad") {
+                                setChordExt9(false);
+                                setChordExt11(false);
+                                setChordExt13(false);
+                              }
+                            }}
+                          >
+                            {CHORD_STRUCTURES.map((s) => (
+                              <option key={s.value} value={s.value}>
+                                {s.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM}>Inversión</label>
+                          <select className={UI_SELECT_SM} value={chordInversion} onChange={(e) => setChordInversion(e.target.value)}>
+                            {CHORD_INVERSIONS.map((inv) => (
+                              <option key={inv.value} value={inv.value} disabled={chordStructure === "triad" && inv.value === "3"}>
+                                {inv.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM}>Extensiones</label>
+                          <div className={UI_EXT_GRID}>
+                            <label className="inline-flex items-center gap-2">
+                              <input type="checkbox" checked={chordExt7} onChange={(e) => setChordExt7(e.target.checked)} disabled={chordStructure === "tetrad"} /> 7
+                            </label>
+                            <label className="inline-flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={chordExt6}
+                                onChange={(e) => {
+                                  const v = e.target.checked;
+                                  setChordExt6(v);
+                                  if (v) setChordExt13(false);
+                                  if (chordStructure === "tetrad" && v) {
+                                    setChordExt9(false);
+                                    setChordExt11(false);
+                                    setChordExt13(false);
+                                  }
+                                }}
+                              />{" "}
+                              6
+                            </label>
+                            <label className="inline-flex items-center gap-2">
+                              <input type="checkbox" checked={chordExt9}
+                                onChange={(e) => {
+                                  const v = e.target.checked;
+                                  if (chordStructure === "tetrad") {
+                                    setChordExt9(v);
+                                    if (v) {
+                                      setChordExt11(false);
+                                      setChordExt13(false);
+                                    }
+                                  } else {
+                                    setChordExt9(v);
+                                  }
+                                }}
+                                disabled={chordStructure === "triad"} /> 9
+                            </label>
+                            <label className="inline-flex items-center gap-2">
+                              <input type="checkbox" checked={chordExt11}
+                                onChange={(e) => {
+                                  const v = e.target.checked;
+                                  if (chordStructure === "tetrad") {
+                                    setChordExt11(v);
+                                    if (v) {
+                                      setChordExt9(false);
+                                      setChordExt13(false);
+                                    }
+                                  } else {
+                                    setChordExt11(v);
+                                  }
+                                }}
+                                disabled={chordStructure === "triad"} /> 11
+                            </label>
+                            <label className="inline-flex items-center gap-2">
+                              <input type="checkbox" checked={chordExt13}
+                                onChange={(e) => {
+                                  const v = e.target.checked;
+                                  if (chordStructure === "tetrad") {
+                                    setChordExt13(v);
+                                    if (v) {
+                                      setChordExt6(false);
+                                      setChordExt9(false);
+                                      setChordExt11(false);
+                                    }
+                                  } else {
+                                    setChordExt13(v);
+                                  }
+                                }}
+                                disabled={chordStructure === "triad"} /> 13
+                            </label>
+                          </div>
+                        </div>
+
+                        <div className="min-w-0">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <label className={UI_LABEL_SM}>Voicing ({chordVoicings.length} opciones)</label>
+                            {chordDbLastUrl ? (
+                              <a className="text-[11px] text-slate-600 underline" href={chordDbLastUrl} target="_blank" rel="noreferrer">
+                                JSON
+                              </a>
+                            ) : null}
                           </div>
 
-                          <div className="grid gap-3 md:grid-cols-12 items-end">
-                            <div className="md:col-span-3">
-                              <label className="block text-xs font-semibold text-slate-700">Tono</label>
-                              <div className="mt-1 flex items-center gap-2">
-                                <select
-                                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                                  value={slot.rootPc}
-                                  disabled={!slot.enabled}
-                                  onChange={(e) => {
-                                    const pc = parseInt(e.target.value, 10);
-                                    setNearSlots((prev) => {
-                                      const next = [...prev];
-                                      next[idx] = { ...next[idx], rootPc: pc, selFrets: null };
-                                      return next;
-                                    });
+                          <div className="mt-1 flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              className={UI_BTN_SM}
+                              title="Anterior"
+                              onClick={() => setChordVoicingIdx((i) => (chordVoicings.length ? (i - 1 + chordVoicings.length) % chordVoicings.length : 0))}
+                              disabled={!chordVoicings.length}
+                            >
+                              ◀
+                            </button>
+
+                            <select
+                              className={UI_SELECT_SM + " flex-1"}
+                              value={chordVoicings[chordVoicingIdx]?.frets || ""}
+                              onChange={(e) => {
+                                const f = e.target.value;
+                                const idx = chordVoicings.findIndex((v) => v.frets === f);
+                                if (idx >= 0) setChordVoicingIdx(idx);
+                              }}
+                              disabled={!chordVoicings.length}
+                            >
+                              {chordVoicings.map((v, i) => (
+                                <option key={v.frets} value={v.frets}>
+                                  {i + 1}. {v.frets} (span {v.span})
+                                </option>
+                              ))}
+                            </select>
+
+                            <button
+                              type="button"
+                              className={UI_BTN_SM}
+                              title="Siguiente"
+                              onClick={() => setChordVoicingIdx((i) => (chordVoicings.length ? (i + 1) % chordVoicings.length : 0))}
+                              disabled={!chordVoicings.length}
+                            >
+                              ▶
+                            </button>
+                          </div>
+
+                          {chordDbError ? <div className="mt-1 text-[11px] font-semibold text-rose-600">{chordDbError}</div> : null}
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <ChordFretboard title="Acorde" voicing={activeChordVoicing} voicingIdx={chordVoicingIdx} voicingTotal={Math.max(1, chordVoicings.length)} />
+
+                  {/* ACORDES CERCANOS */}
+                  <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+                    <div className="flex flex-wrap items-end justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-800">Acordes cercanos</div>
+                        <div className="text-xs text-slate-600">Selecciona hasta 4 acordes y busca digitaciones dentro de un rango. Ordena por cercanía al Acorde 1.</div>
+                      </div>
+
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      {nearSlots.map((slot, idx) => {
+                        const disableAll = idx > 0 && !slot.enabled;
+                        const notes = spellChordNotesForSlot(slot).join(", ");
+                        const chordName = chordDisplayNameFromUI({
+                          rootPc: slot.rootPc,
+                          preferSharps: slot?.spellPreferSharps ?? preferSharpsFromMajorTonicPc(mod12(slot.rootPc)),
+                          quality: slot.quality,
+                          suspension: slot.suspension || "none",
+                          structure: slot.structure,
+                          ext7: slot.ext7,
+                          ext6: slot.ext6,
+                          ext9: slot.ext9,
+                          ext11: slot.ext11,
+                          ext13: slot.ext13,
+                        });
+
+                        const r = nearComputed.ranked[idx];
+                        const options = (r?.ranked || []).slice(0, idx === 0 ? 60 : 40);
+                        const errMsg = r?.err || null;
+
+                        return (
+                          <div key={idx} className={`rounded-2xl border border-slate-200 p-3 ${disableAll ? "bg-slate-50" : "bg-white"}`}>
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div className="text-sm font-semibold text-slate-800">
+                                Acorde {idx + 1}
+                                {idx === 0 ? " (base)" : ""}
+                                <span className="ml-2 text-xs font-semibold text-slate-800">{chordName}</span>
+                                <span className="ml-2 text-xs font-normal text-slate-600">(Notas: {notes})</span>
+                              </div>
+
+                              <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-semibold text-slate-700">Fondo</span>
+                                  <input
+                                    type="color"
+                                    value={nearBgColors[idx]}
+                                    onChange={(e) => setNearBgColor(idx, e.target.value)}
+                                    className="h-7 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
+                                  />
+                                </div>
+
+                                {idx > 0 ? (
+                                  <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!slot.enabled}
+                                      onChange={(e) => updateNearSlot(idx, { enabled: e.target.checked, selFrets: null })}
+                                    />
+                                    Activo
+                                  </label>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            <div className="mt-2 grid items-end gap-2 lg:grid-cols-[96px_210px_90px_200px_130px_280px]">
+                              <div className="min-w-0">
+                                <label className={UI_LABEL_SM}>Tono</label>
+                                <div className="mt-1 flex items-center gap-1.5">
+                                  <select
+                                    className={UI_SELECT_SM_TONE}
+                                    value={chordUiLetterFromPc(slot.rootPc, !!slot.spellPreferSharps)}
+                                    onChange={(e) => {
+                                      const letter = e.target.value;
+                                      if (Object.prototype.hasOwnProperty.call(NATURAL_PC, letter)) {
+                                        updateNearSlot(idx, { rootPc: mod12(NATURAL_PC[letter]), selFrets: null });
+                                      }
+                                    }}
+                                    disabled={disableAll}
+                                  >
+                                    {LETTERS.map((l) => (
+                                      <option key={l} value={l}>
+                                        {l}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    className={`${UI_BTN_SM} ${(!NATURAL_PCS.has(mod12(slot.rootPc)) && !slot.spellPreferSharps) ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
+                                    title="Bajar 1 semitono"
+                                    onClick={() => {
+                                    const letter = chordUiLetterFromPc(slot.rootPc, false); // fuerza letra desde bemoles
+                                    const nat = mod12(NATURAL_PC[letter]);
+                                    const cur = mod12(slot.rootPc);
+                                    if (cur !== nat) {
+                                      updateNearSlot(idx, { rootPc: nat, selFrets: null, spellPreferSharps: false });
+                                      return;
+                                    }
+                                    updateNearSlot(idx, { rootPc: mod12(nat - 1), selFrets: null, spellPreferSharps: false });
                                   }}
+                                    disabled={disableAll}
+                                  >
+                                    ♭
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={`${UI_BTN_SM} ${(!NATURAL_PCS.has(mod12(slot.rootPc)) && slot.spellPreferSharps) ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
+                                    title="Subir 1 semitono"
+                                    onClick={() => {
+                                    const letter = chordUiLetterFromPc(slot.rootPc, true); // fuerza letra desde sostenidos
+                                    const nat = mod12(NATURAL_PC[letter]);
+                                    const cur = mod12(slot.rootPc);
+                                    if (cur !== nat) {
+                                      updateNearSlot(idx, { rootPc: nat, selFrets: null, spellPreferSharps: true });
+                                      return;
+                                    }
+                                    updateNearSlot(idx, { rootPc: mod12(nat + 1), selFrets: null, spellPreferSharps: true });
+                                  }}
+                                    disabled={disableAll}
+                                  >
+                                    ♯
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="min-w-0">
+                                <label className={UI_LABEL_SM}>Calidad / Sus</label>
+                                <div className="mt-1 grid grid-cols-2 gap-1.5">
+                                  <select
+                                    className={UI_SELECT_SM}
+                                    value={slot.quality}
+                                    onChange={(e) => updateNearSlot(idx, { quality: e.target.value, selFrets: null })}
+                                    disabled={disableAll}
+                                  >
+                                    {CHORD_QUALITIES.map((q) => (
+                                      <option key={q.value} value={q.value}>
+                                        {q.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <select
+                                    className={UI_SELECT_SM}
+                                    value={slot.suspension || "none"}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      updateNearSlot(idx, { suspension: v, selFrets: null });
+                                      if (v !== "none" && (slot.quality === "dim" || slot.quality === "hdim")) {
+                                        updateNearSlot(idx, { quality: "maj", selFrets: null });
+                                      }
+                                    }}
+                                    disabled={disableAll}
+                                    title="Suspensión: reemplaza la 3ª por 2ª o 4ª"
+                                  >
+                                    <option value="none">Sus —</option>
+                                    <option value="sus2">sus2</option>
+                                    <option value="sus4">sus4</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div className="min-w-0">
+                                <label className={UI_LABEL_SM}>Estructura</label>
+                                <select
+                                  className={UI_SELECT_SM}
+                                  value={slot.structure}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const patch = val === "chord" ? {} : { ext9: false, ext11: false, ext13: false };
+                                    updateNearSlot(idx, { structure: val, selFrets: null, ...patch });
+                                  }}
+                                  disabled={disableAll}
                                 >
-                                  {NOTES_SHARP.map((n, pc) => (
-                                    <option key={pc} value={pc}>
-                                      {n}{NOTES_FLAT[pc] !== n ? ` / ${NOTES_FLAT[pc]}` : ""}
+                                  {CHORD_STRUCTURES.map((s) => (
+                                    <option key={s.value} value={s.value}>
+                                      {s.label}
                                     </option>
                                   ))}
                                 </select>
-                                <button
-                                  type="button"
-                                  className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-sm font-semibold shadow-sm hover:bg-slate-50 disabled:opacity-40"
-                                  title="Bajar 1 semitono"
-                                  disabled={!slot.enabled}
-                                  onClick={() => {
-                                    setNearSlots((prev) => {
-                                      const next = [...prev];
-                                      next[idx] = { ...next[idx], rootPc: mod12(next[idx].rootPc - 1), selFrets: null };
-                                      return next;
-                                    });
-                                  }}
-                                >
-                                  ♭
-                                </button>
-                                <button
-                                  type="button"
-                                  className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-sm font-semibold shadow-sm hover:bg-slate-50 disabled:opacity-40"
-                                  title="Subir 1 semitono"
-                                  disabled={!slot.enabled}
-                                  onClick={() => {
-                                    setNearSlots((prev) => {
-                                      const next = [...prev];
-                                      next[idx] = { ...next[idx], rootPc: mod12(next[idx].rootPc + 1), selFrets: null };
-                                      return next;
-                                    });
-                                  }}
-                                >
-                                  ♯
-                                </button>
                               </div>
-                            </div>
 
-                            <div className="md:col-span-2">
-                              <label className="block text-xs font-semibold text-slate-700">Calidad</label>
-                              <select
-                                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                                value={slot.quality}
-                                disabled={!slot.enabled}
-                                onChange={(e) => {
-                                  const q = e.target.value;
-                                  setNearSlots((prev) => {
-                                    const next = [...prev];
-                                    next[idx] = { ...next[idx], quality: q, selFrets: null };
-                                    return next;
-                                  });
-                                }}
-                              >
-                                {CHORD_QUALITIES.map((q) => (
-                                  <option key={q.value} value={q.value}>
-                                    {q.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div className="md:col-span-2">
-                              <label className="block text-xs font-semibold text-slate-700">Estructura</label>
-                              <select
-                                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                                value={slot.structure}
-                                disabled={!slot.enabled}
-                                onChange={(e) => {
-                                  const st = e.target.value;
-                                  setNearSlots((prev) => {
-                                    const next = [...prev];
-                                    next[idx] = { ...next[idx], structure: st, ext9: false, ext11: false, ext13: false, selFrets: null };
-                                    return next;
-                                  });
-                                }}
-                              >
-                                {CHORD_STRUCTURES.map((s) => (
-                                  <option key={s.value} value={s.value}>
-                                    {s.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div className="md:col-span-2">
-                              <label className="block text-xs font-semibold text-slate-700">Inversión</label>
-                              <select
-                                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                                value={slot.inversion}
-                                disabled={!slot.enabled}
-                                onChange={(e) => {
-                                  const inv = e.target.value;
-                                  setNearSlots((prev) => {
-                                    const next = [...prev];
-                                    next[idx] = { ...next[idx], inversion: inv, selFrets: null };
-                                    return next;
-                                  });
-                                }}
-                              >
-                                {CHORD_INVERSIONS.map((inv) => (
-                                  <option key={inv.value} value={inv.value}>
-                                    {inv.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div className="md:col-span-3">
-                              <label className="block text-xs font-semibold text-slate-700">Extensiones</label>
-                              <div className="mt-2 flex flex-wrap gap-3 text-sm">
-                                <label className="inline-flex items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={!!slot.ext7}
-                                    disabled={!slot.enabled || slot.structure === "tetrad"}
-                                    onChange={(e) => {
-                                      const on = e.target.checked;
-                                      setNearSlots((prev) => {
-                                        const next = [...prev];
-                                        next[idx] = { ...next[idx], ext7: on, selFrets: null };
-                                        return next;
-                                      });
-                                    }}
-                                  />
-                                  7
-                                </label>
-                                <label className="inline-flex items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={!!slot.ext9}
-                                    disabled={!slot.enabled || slot.structure !== "chord"}
-                                    onChange={(e) => {
-                                      const on = e.target.checked;
-                                      setNearSlots((prev) => {
-                                        const next = [...prev];
-                                        next[idx] = { ...next[idx], ext9: on, selFrets: null };
-                                        return next;
-                                      });
-                                    }}
-                                  />
-                                  9
-                                </label>
-                                <label className="inline-flex items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={!!slot.ext11}
-                                    disabled={!slot.enabled || slot.structure !== "chord"}
-                                    onChange={(e) => {
-                                      const on = e.target.checked;
-                                      setNearSlots((prev) => {
-                                        const next = [...prev];
-                                        next[idx] = { ...next[idx], ext11: on, selFrets: null };
-                                        return next;
-                                      });
-                                    }}
-                                  />
-                                  11
-                                </label>
-                                <label className="inline-flex items-center gap-2">
-                                  <input
-                                    type="checkbox"
-                                    checked={!!slot.ext13}
-                                    disabled={!slot.enabled || slot.structure !== "chord"}
-                                    onChange={(e) => {
-                                      const on = e.target.checked;
-                                      setNearSlots((prev) => {
-                                        const next = [...prev];
-                                        next[idx] = { ...next[idx], ext13: on, selFrets: null };
-                                        return next;
-                                      });
-                                    }}
-                                  />
-                                  13
-                                </label>
-                              </div>
-                            </div>
-
-                            <div className="md:col-span-12">
-                              <label className="block text-xs font-semibold text-slate-700">Digitación en rango</label>
-                              <div className="mt-1 flex flex-wrap items-center gap-2">
-                                <select
-                                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300 md:w-auto md:flex-1"
-                                  disabled={!slot.enabled || !ranked.length}
-                                  value={slot.selFrets || ""}
-                                  onChange={(e) => {
-                                    const f = e.target.value || null;
-                                    setNearSlots((prev) => {
-                                      const next = [...prev];
-                                      next[idx] = { ...next[idx], selFrets: f };
-                                      return next;
-                                    });
-                                  }}
-                                >
-                                  <option value="">(auto)</option>
-                                  {ranked.map((v, i2) => {
-                                    const rootName = pcToName(slot.rootPc, preferSharpsSlot);
-                                    const bassName = pcToName(v.bassPc ?? slot.rootPc, preferSharpsSlot);
-                                    const slash = bassName === rootName ? rootName : `${rootName}/${bassName}`;
-                                    const costTxt = !isBase && Number.isFinite(v._cost) ? ` · Δ${v._cost.toFixed(1)}` : "";
-                                    return (
-                                      <option key={v.frets + i2} value={v.frets}>
-                                        {slash} · {v.frets} (span {v.span}){costTxt}
-                                      </option>
-                                    );
-                                  })}
+                              <div className="min-w-0">
+                                <label className={UI_LABEL_SM}>Inversión</label>
+                                <select className={UI_SELECT_SM} value={slot.inversion} onChange={(e) => updateNearSlot(idx, { inversion: e.target.value, selFrets: null })} disabled={disableAll}>
+                                  {CHORD_INVERSIONS.map((inv) => (
+                                    <option key={inv.value} value={inv.value} disabled={slot.structure === "triad" && inv.value === "3"}>
+                                      {inv.label}
+                                    </option>
+                                  ))}
                                 </select>
+                              </div>
 
-                                <div className="text-xs text-slate-600">
-                                  {slot.enabled ? (
-                                    err ? (
-                                      <span className="font-semibold text-rose-600">{err}</span>
-                                    ) : ranked.length ? (
-                                      <span>{ranked.length} opciones{isBase ? "" : " (ordenadas por cercanía)"}</span>
-                                    ) : (
-                                      "Sin opciones"
-                                    )
-                                  ) : (
-                                    "(desactivado)"
-                                  )}
+                              <div className="min-w-0">
+                                <label className={UI_LABEL_SM}>Extensiones</label>
+                                <div className={UI_EXT_GRID}>
+                                  <label className="inline-flex items-center gap-2">
+                                    <input type="checkbox" checked={!!slot.ext7} onChange={(e) => updateNearSlot(idx, { ext7: e.target.checked, selFrets: null })} disabled={disableAll || slot.structure === "tetrad"} /> 7
+                                  </label>
+                                  <label className="inline-flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!slot.ext6}
+                                      onChange={(e) => updateNearSlot(idx, { ext6: e.target.checked, selFrets: null })}
+                                      disabled={disableAll}
+                                    />{" "}
+                                    6
+                                  </label>
+                                  <label className="inline-flex items-center gap-2">
+                                    <input type="checkbox" checked={!!slot.ext9} onChange={(e) => updateNearSlot(idx, { ext9: e.target.checked, selFrets: null })} disabled={disableAll || slot.structure === "triad"} /> 9
+                                  </label>
+                                  <label className="inline-flex items-center gap-2">
+                                    <input type="checkbox" checked={!!slot.ext11} onChange={(e) => updateNearSlot(idx, { ext11: e.target.checked, selFrets: null })} disabled={disableAll || slot.structure === "triad"} /> 11
+                                  </label>
+                                  <label className="inline-flex items-center gap-2">
+                                    <input type="checkbox" checked={!!slot.ext13} onChange={(e) => updateNearSlot(idx, { ext13: e.target.checked, selFrets: null })} disabled={disableAll || slot.structure === "triad"} /> 13
+                                  </label>
+                                </div>
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <label className={UI_LABEL_SM}>Digitación en rango ({options.length} opciones)</label>
+                                <div className="mt-1 flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    className={UI_BTN_SM}
+                                    title="Anterior"
+                                    onClick={() => {
+                                      if (!options.length) return;
+                                      const cur = slot.selFrets ?? options[0].frets;
+                                      let iCur = options.findIndex((v) => v.frets === cur);
+                                      if (iCur < 0) iCur = 0;
+                                      const iNew = (iCur - 1 + options.length) % options.length;
+                                      updateNearSlot(idx, { selFrets: options[iNew].frets });
+                                    }}
+                                    disabled={disableAll || !options.length}
+                                  >
+                                    ◀
+                                  </button>
+
+                                  <select
+                                    className={UI_SELECT_SM + " flex-1"}
+                                    value={slot.selFrets || "(auto)"}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      updateNearSlot(idx, { selFrets: v === "(auto)" ? null : v });
+                                    }}
+                                    disabled={disableAll}
+                                  >
+                                    <option value="(auto)">(auto)</option>
+                                    {options.map((v) => (
+                                      <option key={v.frets} value={v.frets}>
+                                        {v.frets} (min {v.minFret} · span {v.span})
+                                      </option>
+                                    ))}
+                                  </select>
+
+                                  <button
+                                    type="button"
+                                    className={UI_BTN_SM}
+                                    title="Siguiente"
+                                    onClick={() => {
+                                      if (!options.length) return;
+                                      const cur = slot.selFrets ?? options[0].frets;
+                                      let iCur = options.findIndex((v) => v.frets === cur);
+                                      if (iCur < 0) iCur = 0;
+                                      const iNew = (iCur + 1) % options.length;
+                                      updateNearSlot(idx, { selFrets: options[iNew].frets });
+                                    }}
+                                    disabled={disableAll || !options.length}
+                                  >
+                                    ▶
+                                  </button>
+                                </div>
+                                <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+                                  
+                                  {errMsg ? <div className="font-semibold text-rose-600">{errMsg}</div> : null}
                                 </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
 
-                  <NearChordsFretboard />
+                    <NearChordsFretboard />
+                  </section>
                 </div>
-              </section>
-            ) : null}
+              ) : null}
+            </div>
           </div>
 
-          {/* DERECHA: COLORES */}
+          {/* DERECHA */}
           <aside className="space-y-4">
-            <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+            <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
               <div className="mb-2 text-sm font-semibold text-slate-800">Colores (círculos)</div>
               <div className="grid grid-cols-2 gap-2">
                 {[
@@ -3919,49 +4688,72 @@ export default function FretboardScalesPage() {
                   { k: "extra", label: legend.extra },
                   { k: "route", label: "Ruta (fondo)" },
                 ].map((it) => (
-                  <div key={it.k} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div key={it.k} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5">
                     <div className="min-w-0">
                       <div className="truncate text-xs font-semibold text-slate-700">{it.label}</div>
-                      <div className="mt-0.5 text-[11px] text-slate-500">{colors[it.k]}</div>
+                      <div className="mt-0.5 text-[10px] text-slate-500">{colors[it.k]}</div>
                     </div>
                     <input
                       type="color"
                       value={colors[it.k]}
                       onChange={(e) => setColor(it.k, e.target.value)}
-                      className="h-9 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
-                      title={it.label}
+                      className="h-8 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
                     />
                   </div>
                 ))}
               </div>
             </section>
-
-            <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+            {showBoards.chords ? (
+              <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+                <div className="mb-2 text-sm font-semibold text-slate-800">Colores (acordes: 7/6/9/11/13)</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { k: "seventh", label: "7" },
+                    { k: "sixth", label: "6" },
+                    { k: "ninth", label: "9" },
+                    { k: "eleventh", label: "11" },
+                    { k: "thirteenth", label: "13" },
+                  ].map((it) => (
+                    <div key={it.k} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5">
+                      <div className="min-w-0">
+                        <div className="truncate text-xs font-semibold text-slate-700">{it.label}</div>
+                        <div className="mt-0.5 text-[10px] text-slate-500">{colors[it.k]}</div>
+                      </div>
+                      <input
+                        type="color"
+                        value={colors[it.k]}
+                        onChange={(e) => setColor(it.k, e.target.value)}
+                        className="h-8 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+            {showBoards.patterns ? (
+<section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
               <div className="mb-2 text-sm font-semibold text-slate-800">Colores (patrones)</div>
               <div className="grid grid-cols-2 gap-2">
                 {Array.from({ length: 7 }, (_, i) => i).map((i) => (
-                  <div key={i} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div key={i} className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1.5">
                     <div>
                       <div className="text-xs font-semibold text-slate-700">Patrón {i + 1}</div>
-                      <div className="mt-0.5 text-[11px] text-slate-500">{patternColors[i]}</div>
+                      <div className="mt-0.5 text-[10px] text-slate-500">{patternColors[i]}</div>
                     </div>
                     <input
                       type="color"
                       value={patternColors[i]}
                       onChange={(e) => setPatternColor(i, e.target.value)}
-                      className="h-9 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
-                      title={`Patrón ${i + 1}`}
+                      className="h-8 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
                     />
                   </div>
                 ))}
               </div>
-              <div className="mt-2 text-xs text-slate-600">Patrones disponibles: {patternsMode === "caged" ? "5 CAGED" : scaleIntervals.length === 5 ? "5 boxes" : scaleIntervals.length === 7 ? "7 3NPS" : "(sin patrones)"}.</div>
+              <div className="mt-2 text-xs text-slate-600">
+                Patrones disponibles: {patternsMode === "caged" ? "5 CAGED" : scaleIntervals.length === 5 ? "5 boxes" : scaleIntervals.length === 7 ? "7 3NPS" : "(sin patrones)"}.
+              </div>
             </section>
-
-            <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
-              <div className="text-sm font-semibold text-slate-800">Diagnóstico rápido</div>
-              <div className="mt-2 text-xs text-slate-600">Si ves A# en F mayor, pon <b>Notación: Auto</b> o <b>b</b>.</div>
-            </section>
+            ) : null}
           </aside>
         </div>
       </div>
