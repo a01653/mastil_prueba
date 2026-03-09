@@ -3937,7 +3937,7 @@ export default function FretboardScalesPage() {
     );
   }
 
-  const wrap = "mx-auto max-w-[1500px] p-3";
+  const wrap = "mx-auto min-w-[1500px] max-w-[1500px] p-3";
 
   // UI compacto (especialmente para Acordes)
   const UI_SELECT_SM = "h-7 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
@@ -3954,7 +3954,7 @@ export default function FretboardScalesPage() {
   const scaleOptions = useMemo(() => Object.keys(SCALE_PRESETS), []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 text-slate-900">
+    <div className="min-h-screen overflow-x-auto bg-gradient-to-b from-slate-50 to-slate-100 text-slate-900">
       <div className={wrap}>
         <header className="mb-3">
           <h1 className="text-xl font-semibold">Mástil interactivo: escalas, patrones, rutas y acordes</h1>
@@ -3963,7 +3963,7 @@ export default function FretboardScalesPage() {
           </p>
         </header>
 
-        <div className="grid gap-3 lg:grid-cols-[1fr_380px]">
+        <div className="grid gap-3 grid-cols-[1fr_380px]">
           {/* IZQUIERDA */}
           <div className="space-y-4">
             {/* CONFIG ESCALAS */}
@@ -4162,7 +4162,7 @@ export default function FretboardScalesPage() {
                   <div className="flex flex-wrap items-end justify-between gap-2">
                     <div className="text-sm font-semibold text-slate-800">Ruta musical</div>
                   </div>
-                  <div className="mt-2 grid gap-2 lg:grid-cols-[150px_150px_220px_220px_220px]">
+                  <div className="mt-2 grid gap-2 grid-cols-[150px_150px_220px_220px_220px]">
                     <div>
                       <label className={UI_LABEL_SM}>Inicio</label>
                       <input className={UI_INPUT_SM + " mt-1 w-full"} value={routeStartCode} onChange={(e) => setRouteStartCode(e.target.value)} />
@@ -4263,7 +4263,7 @@ export default function FretboardScalesPage() {
                       </div>
                     </div>
                     <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                      <div className="grid items-end gap-2 lg:grid-cols-[96px_210px_90px_200px_130px_280px]">
+                      <div className="grid items-end gap-2 grid-cols-[96px_210px_90px_200px_130px_280px]">
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Tono</label>
                           <div className="mt-1 flex items-center gap-1.5">
@@ -4585,7 +4585,7 @@ export default function FretboardScalesPage() {
                               </div>
                             </div>
 
-                            <div className="mt-2 grid items-end gap-2 lg:grid-cols-[96px_210px_90px_200px_130px_280px]">
+                            <div className="mt-2 grid items-end gap-2 grid-cols-[96px_210px_90px_200px_130px_280px]">
                               <div className="min-w-0">
                                 <label className={UI_LABEL_SM}>Tono</label>
                                 <div className="mt-1 flex items-center gap-1.5">
@@ -4891,6 +4891,10 @@ export default function FretboardScalesPage() {
             ) : null}
           </aside>
         </div>
+              <footer className="mt-6 flex items-center justify-between border-t border-slate-200 pt-3 text-xs text-slate-600">
+          <span>Creado por: Jesus Quevedo Rodriguez</span>
+          <span>ver. 1.1</span>
+        </footer>
       </div>
     </div>
   );
