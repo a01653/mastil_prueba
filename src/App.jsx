@@ -4893,7 +4893,7 @@ export default function FretboardScalesPage() {
         </div>
               <footer className="mt-6 flex items-center justify-between border-t border-slate-200 pt-3 text-xs text-slate-600">
           <span>Creado por: Jesus Quevedo Rodriguez</span>
-          <span>ver. 1.1</span>
+          <span>ver. 1.2</span>
         </footer>
       </div>
     </div>
