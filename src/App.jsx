@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 // Mástil interactivo
 // - Escalas: pentatónicas (mayor/menor), mayor/menor natural, modos
@@ -1911,6 +1911,8 @@ export default function FretboardScalesPage() {
   const [chordDbError, setChordDbError] = useState(null);
   const [chordDbLastUrl, setChordDbLastUrl] = useState(null);
   const [chordVoicingIdx, setChordVoicingIdx] = useState(0);
+  const lastChordVoicingRef = useRef(null);
+  const lastNearVoicingsRef = useRef([null, null, null, null]);
 
   // ------------------------
   // Acordes (2): acordes cercanos por rango de trastes
@@ -2462,11 +2464,43 @@ export default function FretboardScalesPage() {
     maxFret,
   ]);
 
-  useEffect(() => {
-    if (chordVoicingIdx >= chordVoicings.length && chordVoicings.length) setChordVoicingIdx(0);
-  }, [chordVoicings.length]);
-
   const activeChordVoicing = chordVoicings[chordVoicingIdx] || null;
+
+  const chordConfigSig = useMemo(
+    () =>
+      [
+        chordRootPc,
+        chordQuality,
+        chordSuspension,
+        chordStructure,
+        chordInversion,
+        chordExt7 ? 1 : 0,
+        chordExt6 ? 1 : 0,
+        chordExt9 ? 1 : 0,
+        chordExt11 ? 1 : 0,
+        chordExt13 ? 1 : 0,
+        maxFret,
+      ].join("|"),
+    [chordRootPc, chordQuality, chordSuspension, chordStructure, chordInversion, chordExt7, chordExt6, chordExt9, chordExt11, chordExt13, maxFret]
+  );
+
+  // Guardamos SIEMPRE el voicing previo antes de que cambie la configuración.
+  // Así la siguiente lista se re-selecciona por cercanía real al voicing anterior,
+  // no por mantener el mismo índice numérico.
+  useEffect(() => {
+    return () => {
+      if (activeChordVoicing) lastChordVoicingRef.current = activeChordVoicing;
+    };
+  }, [activeChordVoicing?.frets, chordConfigSig]);
+
+  useEffect(() => {
+    if (!chordVoicings.length) {
+      if (chordVoicingIdx !== 0) setChordVoicingIdx(0);
+      return;
+    }
+    const nextIdx = nearestVoicingIndex(lastChordVoicingRef.current, chordVoicings);
+    if (nextIdx !== chordVoicingIdx) setChordVoicingIdx(nextIdx);
+  }, [chordVoicings, chordConfigSig]);
 
   // ------------------------
   // Acordes (2): cálculo de voicings en rango + ordenación por cercanía
@@ -2505,6 +2539,25 @@ export default function FretboardScalesPage() {
     const ctr = Math.abs(voicingCenterFret(cand) - voicingCenterFret(base));
 
     return 1.2 * bassF + 2.0 * bassS + 0.6 * minF + 0.3 * span + 0.4 * ctr;
+  }
+
+  function nearestVoicingIndex(prevVoicing, list) {
+    if (!Array.isArray(list) || !list.length) return 0;
+    if (!prevVoicing) return 0;
+
+    const sameIdx = list.findIndex((v) => v?.frets === prevVoicing?.frets);
+    if (sameIdx >= 0) return sameIdx;
+
+    let bestIdx = 0;
+    let bestCost = Infinity;
+    for (let i = 0; i < list.length; i++) {
+      const c = voicingProximityCost(prevVoicing, list[i]);
+      if (c < bestCost) {
+        bestCost = c;
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
   }
 
   function slotThirdOffset(quality, suspension) {
@@ -2800,6 +2853,73 @@ export default function FretboardScalesPage() {
 
     return { ranked, selected, baseVoicing };
   }, [nearSlots, nearFrom, nearTo, chordDbCache, chordDbCacheErr, maxFret]);
+
+  const nearRankSig = useMemo(
+    () => nearComputed.ranked.map((r) => (r?.ranked || []).map((v) => v.frets).join(",")).join("|"),
+    [nearComputed.ranked]
+  );
+
+  const nearSelectedSig = useMemo(
+    () => nearComputed.selected.map((v) => v?.frets || "").join("|"),
+    [nearComputed.selected]
+  );
+
+  const nearConfigSig = useMemo(
+    () =>
+      JSON.stringify({
+        from: nearFrom,
+        to: nearTo,
+        maxFret,
+        slots: nearSlots.map((s) => ({
+          enabled: !!s?.enabled,
+          rootPc: s?.rootPc,
+          quality: s?.quality,
+          suspension: s?.suspension,
+          structure: s?.structure,
+          inversion: s?.inversion,
+          ext7: !!s?.ext7,
+          ext6: !!s?.ext6,
+          ext9: !!s?.ext9,
+          ext11: !!s?.ext11,
+          ext13: !!s?.ext13,
+          selFrets: s?.selFrets || null,
+        })),
+      }),
+    [nearFrom, nearTo, maxFret, nearSlots]
+  );
+
+  // Igual que en el acorde principal: conserva el voicing anterior REAL antes del recálculo.
+  useEffect(() => {
+    return () => {
+      lastNearVoicingsRef.current = nearComputed.selected.map((v, i) => v || lastNearVoicingsRef.current[i] || null);
+    };
+  }, [nearSelectedSig, nearConfigSig]);
+
+  useEffect(() => {
+    setNearSlots((prev) => {
+      let changed = false;
+      const next = prev.map((slot, idx) => {
+        if (!slot?.enabled) return slot;
+        const options = nearComputed.ranked[idx]?.ranked || [];
+        if (!options.length) {
+          if (slot.selFrets != null) {
+            changed = true;
+            return { ...slot, selFrets: null };
+          }
+          return slot;
+        }
+
+        const nextIdx = nearestVoicingIndex(lastNearVoicingsRef.current[idx], options);
+        const nextFrets = options[nextIdx]?.frets ?? null;
+        if (slot.selFrets !== nextFrets) {
+          changed = true;
+          return { ...slot, selFrets: nextFrets };
+        }
+        return slot;
+      });
+      return changed ? next : prev;
+    });
+  }, [nearRankSig]);
 
   // Acordes de la escala (armonización) a partir del Acorde 1 (base)
   // Regla “teórica”:
