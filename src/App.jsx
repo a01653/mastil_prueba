@@ -485,6 +485,7 @@ function buildScaleDegreeChord({ scaleIntervals, degreeIndex, withSeventh = fals
 const APP_BASE = (import.meta && import.meta.env && import.meta.env.BASE_URL) ? import.meta.env.BASE_URL : "/";
 // Fallback (cuando se ejecuta fuera del repo, p.ej. sandbox): GitHub Pages del proyecto
 const PAGES_BASE = "https://a01653.github.io/mastil_escalas/";
+const UI_STORAGE_KEY = "mastil_interactivo_guitarra_config_v1";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -2054,6 +2055,87 @@ function movementCost(a, b) {
   return Math.max(0.05, base);
 }
 
+function cleanUiText(s) {
+  return String(s || "").replace(/\s+/g, " ").trim();
+}
+
+function nearestControlLabel(el) {
+  let node = el;
+  while (node && node !== document.body) {
+    const wrappingLabel = node.closest && node.closest("label");
+    const wrappingText = cleanUiText((wrappingLabel && wrappingLabel.textContent) || "");
+    if (wrappingText) return wrappingText;
+
+    const parent = node.parentElement;
+    if (parent) {
+      const siblings = Array.from(parent.children);
+      const idx = siblings.indexOf(node);
+      for (let i = idx - 1; i >= 0; i--) {
+        const sib = siblings[i];
+        const direct = sib.matches && sib.matches("label") ? sib : null;
+        const nested = sib.querySelector ? sib.querySelector("label") : null;
+        const text = cleanUiText(((direct || nested) && (direct || nested).textContent) || "");
+        if (text) return text;
+      }
+    }
+
+    node = node.parentElement;
+  }
+  return "";
+}
+
+function inferControlTitle(el) {
+  const existing = cleanUiText(el.getAttribute && el.getAttribute("title"));
+  if (existing) return existing;
+
+  const tag = String(el.tagName || "").toLowerCase();
+  const type = String((el.getAttribute && el.getAttribute("type")) || "").toLowerCase();
+  const ownText = cleanUiText(el.textContent || "");
+  const label = nearestControlLabel(el);
+  const labelNorm = cleanUiText(label).toLowerCase();
+
+  if (tag === "select") {
+    if (labelNorm.startsWith("nota raíz")) return "Elige la tónica de la escala.";
+    if (labelNorm === "escala") return "Selecciona la escala o modo activo.";
+    if (labelNorm === "trastes") return "Define hasta qué traste se muestra el mástil.";
+    if (labelNorm === "tono") return "Elige la nota base del acorde.";
+    if (labelNorm.startsWith("calidad")) return "Elige la calidad del acorde y, si quieres, una suspensión.";
+    if (labelNorm === "estructura") return "Elige si trabajas con 3, 4 o más notas.";
+    if (labelNorm === "forma") return "Elige la disposición del acorde: cerrado o drop.";
+    if (labelNorm.startsWith("inversión")) return "Elige qué nota del acorde queda en el bajo.";
+    if (labelNorm.startsWith("voicing")) return "Selecciona una digitación concreta del acorde actual.";
+    if (labelNorm.startsWith("digitación en rango")) return "Selecciona una digitación dentro del rango de trastes.";
+    if (labelNorm === "dist.") return "Limita la distancia máxima entre el primer y el último traste.";
+    if (labelNorm === "modo ruta") return "Define cómo se calcula la ruta musical.";
+    if (labelNorm === "patrón") return "Fija un patrón concreto o deja la elección automática.";
+    if (labelNorm.startsWith("máx. notas seguidas/cuerda")) return "Limita cuántas notas consecutivas puede tocar la ruta en una misma cuerda.";
+    if (labelNorm === "inicio") return "Traste inicial del rango visible en acordes cercanos.";
+    if (labelNorm === "tamaño") return "Cantidad de trastes que abarca el rango visible.";
+    return label || "Seleccionar";
+  }
+
+  if (tag === "input" && type === "color") return label ? (label + ": elegir color") : "Elegir color";
+  if (tag === "input" && type === "checkbox") return label || "Activar o desactivar";
+  if (tag === "input") return label || "Introducir valor";
+
+  if (tag === "button") {
+    if (ownText === "♭") return "Bajar 1 semitono";
+    if (ownText === "♯") return "Subir 1 semitono";
+    if (ownText === "Auto") return "Deja que la aplicación elija automáticamente.";
+    if (ownText === "Notas") return "Muestra el nombre de las notas.";
+    if (ownText === "Intervalos") return "Muestra el grado o intervalo.";
+    if (ownText === "Escala") return "Muestra u oculta el mástil de la escala.";
+    if (ownText === "Patrones") return "Muestra u oculta el mástil de patrones.";
+    if (ownText === "Ruta") return "Muestra u oculta el mástil de la ruta musical.";
+    if (ownText === "Acordes") return "Muestra u oculta el panel de acordes.";
+    if (ownText === "Ver todo") return "Muestra también las notas que no pertenecen a la escala.";
+    if (ownText === "Extra ON" || ownText === "Extra OFF") return "Activa o desactiva las notas extra.";
+    return label || ownText || "Botón";
+  }
+
+  return label || ownText || "";
+}
+
 function computeMusicalRoute({
   rootPc,
   scaleIntervals,
@@ -2336,6 +2418,26 @@ function computeMusicalRoute({
 }
 
 export default function FretboardScalesPage() {
+  const appRootRef = useRef(null);
+  const importConfigInputRef = useRef(null);
+
+  const [browserBuildStamp] = useState(() => {
+    const d = new Date();
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(d);
+    } catch {
+      return d.toLocaleString();
+    }
+  });
+  const [storageHydrated, setStorageHydrated] = useState(false);
+
   // Notación (auto / override)
   const [accMode, setAccMode] = useState("auto"); // auto | sharps | flats
   // Vista (pueden coexistir)
@@ -2343,7 +2445,6 @@ export default function FretboardScalesPage() {
   const [showNotesLabel, setShowNotesLabel] = useState(false);
 
   const [rootPc, setRootPc] = useState(5); // F
-  // Selector compacto de tónica (solo letras + ♭/♯), sin “C#/Db” en el combo.
   const [scaleRootLetter, setScaleRootLetter] = useState("F");
   const [scaleRootAcc, setScaleRootAcc] = useState(null); // null | "flat" | "sharp"
   const [scaleName, setScaleName] = useState("Escala mayor");
@@ -2361,25 +2462,26 @@ export default function FretboardScalesPage() {
   // Qué mástiles mostrar
   const [showBoards, setShowBoards] = useState({ scale: false, patterns: false, route: false, chords: true });
 
-  // Modo de patrones para el 2º mástil (no afecta a rutas por defecto)
-  // auto = comportamiento actual (pentas->boxes, 7 notas->3NPS)
+  // Modo de patrones para el 2º mástil
   const [patternsMode, setPatternsMode] = useState("auto"); // auto | boxes | nps | caged
 
   // ------------------------
   // Acordes (panel opcional)
   // ------------------------
   const [chordRootPc, setChordRootPc] = useState(5); // F
-  const [chordSpellPreferSharps, setChordSpellPreferSharps] = useState(() => preferSharpsFromMajorTonicPc(5)); // ortografía del acorde (C# vs Db)
-  const [chordQuality, setChordQuality] = useState("maj"); // maj|min|dom|dim|hdim
-  const [chordSuspension, setChordSuspension] = useState("none"); // none | sus2 | sus4
-  const [chordStructure, setChordStructure] = useState("triad"); // triad|tetrad|chord
-  const [chordInversion, setChordInversion] = useState("root"); // root|1|2|3
-  const [chordForm, setChordForm] = useState("closed"); // closed|drop*
+  const [chordSpellPreferSharps, setChordSpellPreferSharps] = useState(() => preferSharpsFromMajorTonicPc(5));
+  const [chordQuality, setChordQuality] = useState("maj");
+  const [chordSuspension, setChordSuspension] = useState("none");
+  const [chordStructure, setChordStructure] = useState("triad");
+  const [chordInversion, setChordInversion] = useState("root");
+  const [chordForm, setChordForm] = useState("closed");
   const [chordExt7, setChordExt7] = useState(false);
   const [chordExt6, setChordExt6] = useState(false);
   const [chordExt9, setChordExt9] = useState(false);
   const [chordExt11, setChordExt11] = useState(false);
   const [chordExt13, setChordExt13] = useState(false);
+
+
 
   useEffect(() => {
     // m7(b5) sin 7ª no existe como triada: se degrada a disminuido.
@@ -2451,6 +2553,7 @@ export default function FretboardScalesPage() {
   // ------------------------
   const [nearWindowStart, setNearWindowStart] = useState(2); // inicio del rango (traste)
   const [nearWindowSize, setNearWindowSize] = useState(6); // tamaño del rango (nº de trastes, incluye inicio)
+  const [nearAutoScaleSync, setNearAutoScaleSync] = useState(true);
 
   // Clamp del rango a 0–maxFret
   useEffect(() => {
@@ -2611,7 +2714,253 @@ export default function FretboardScalesPage() {
     "#a7f3d0",
   ]);
 
+  const persistedUiConfig = useMemo(() => ({
+    accMode,
+    showIntervalsLabel,
+    showNotesLabel,
+    rootPc,
+    scaleRootLetter,
+    scaleRootAcc,
+    scaleName,
+    maxFret,
+    showNonScale,
+    customInput,
+    extraInput,
+    showExtra,
+    showBoards,
+    patternsMode,
+    chordRootPc,
+    chordSpellPreferSharps,
+    chordQuality,
+    chordSuspension,
+    chordStructure,
+    chordInversion,
+    chordForm,
+    chordExt7,
+    chordExt6,
+    chordExt9,
+    chordExt11,
+    chordExt13,
+    chordVoicingIdx,
+    chordMaxDist,
+    nearWindowStart,
+    nearWindowSize,
+    nearAutoScaleSync,
+    nearSlots,
+    nearBgColors,
+    routeStartCode,
+    routeEndCode,
+    routeMaxPerString,
+    routeMode,
+    routePreferNps,
+    routePreferVertical,
+    routeKeepPattern,
+    allowPatternSwitch,
+    patternSwitchPenalty,
+    routeFixedPattern,
+    routePickNext,
+    colors,
+    patternColors,
+  }), [
+    accMode,
+    showIntervalsLabel,
+    showNotesLabel,
+    rootPc,
+    scaleRootLetter,
+    scaleRootAcc,
+    scaleName,
+    maxFret,
+    showNonScale,
+    customInput,
+    extraInput,
+    showExtra,
+    showBoards,
+    patternsMode,
+    chordRootPc,
+    chordSpellPreferSharps,
+    chordQuality,
+    chordSuspension,
+    chordStructure,
+    chordInversion,
+    chordForm,
+    chordExt7,
+    chordExt6,
+    chordExt9,
+    chordExt11,
+    chordExt13,
+    chordVoicingIdx,
+    chordMaxDist,
+    nearWindowStart,
+    nearWindowSize,
+    nearAutoScaleSync,
+    nearSlots,
+    nearBgColors,
+    routeStartCode,
+    routeEndCode,
+    routeMaxPerString,
+    routeMode,
+    routePreferNps,
+    routePreferVertical,
+    routeKeepPattern,
+    allowPatternSwitch,
+    patternSwitchPenalty,
+    routeFixedPattern,
+    routePickNext,
+    colors,
+    patternColors,
+  ]);
+
+  useEffect(() => {
+    try {
+      if (typeof window === "undefined") {
+        setStorageHydrated(true);
+        return;
+      }
+      const raw = window.localStorage.getItem(UI_STORAGE_KEY);
+      if (!raw) {
+        setStorageHydrated(true);
+        return;
+      }
+      const saved = JSON.parse(raw);
+      if (!saved || typeof saved !== "object") {
+        setStorageHydrated(true);
+        return;
+      }
+
+      if ("accMode" in saved) setAccMode(saved.accMode);
+      if ("showIntervalsLabel" in saved) setShowIntervalsLabel(!!saved.showIntervalsLabel);
+      if ("showNotesLabel" in saved) setShowNotesLabel(!!saved.showNotesLabel);
+      if ("rootPc" in saved) setRootPc(Number(saved.rootPc));
+      if ("scaleRootLetter" in saved) setScaleRootLetter(saved.scaleRootLetter);
+      if ("scaleRootAcc" in saved) setScaleRootAcc(saved.scaleRootAcc ?? null);
+      if ("scaleName" in saved) setScaleName(saved.scaleName);
+      if ("maxFret" in saved) setMaxFret(Number(saved.maxFret));
+      if ("showNonScale" in saved) setShowNonScale(!!saved.showNonScale);
+      if ("customInput" in saved) setCustomInput(saved.customInput);
+      if ("extraInput" in saved) setExtraInput(saved.extraInput);
+      if ("showExtra" in saved) setShowExtra(!!saved.showExtra);
+      if (saved.showBoards && typeof saved.showBoards === "object") setShowBoards((prev) => ({ ...prev, ...saved.showBoards }));
+      if ("patternsMode" in saved) setPatternsMode(saved.patternsMode);
+
+      if ("chordRootPc" in saved) setChordRootPc(Number(saved.chordRootPc));
+      if ("chordSpellPreferSharps" in saved) setChordSpellPreferSharps(!!saved.chordSpellPreferSharps);
+      if ("chordQuality" in saved) setChordQuality(saved.chordQuality);
+      if ("chordSuspension" in saved) setChordSuspension(saved.chordSuspension);
+      if ("chordStructure" in saved) setChordStructure(saved.chordStructure);
+      if ("chordInversion" in saved) setChordInversion(saved.chordInversion);
+      if ("chordForm" in saved) setChordForm(saved.chordForm);
+      if ("chordExt7" in saved) setChordExt7(!!saved.chordExt7);
+      if ("chordExt6" in saved) setChordExt6(!!saved.chordExt6);
+      if ("chordExt9" in saved) setChordExt9(!!saved.chordExt9);
+      if ("chordExt11" in saved) setChordExt11(!!saved.chordExt11);
+      if ("chordExt13" in saved) setChordExt13(!!saved.chordExt13);
+      if ("chordVoicingIdx" in saved) setChordVoicingIdx(Number(saved.chordVoicingIdx) || 0);
+      if ("chordMaxDist" in saved) setChordMaxDist(Number(saved.chordMaxDist) || 4);
+
+      if ("nearWindowStart" in saved) setNearWindowStart(Number(saved.nearWindowStart) || 0);
+      if ("nearWindowSize" in saved) setNearWindowSize(Number(saved.nearWindowSize) || 6);
+      if ("nearAutoScaleSync" in saved) setNearAutoScaleSync(!!saved.nearAutoScaleSync);
+      if (Array.isArray(saved.nearSlots)) {
+        setNearSlots((prev) => prev.map((slot, i) => ({ ...slot, ...(saved.nearSlots[i] || {}) })));
+      }
+      if (Array.isArray(saved.nearBgColors)) {
+        setNearBgColors((prev) => prev.map((c, i) => saved.nearBgColors[i] || c));
+      }
+
+      if ("routeStartCode" in saved) setRouteStartCode(saved.routeStartCode);
+      if ("routeEndCode" in saved) setRouteEndCode(saved.routeEndCode);
+      if ("routeMaxPerString" in saved) setRouteMaxPerString(Number(saved.routeMaxPerString) || 4);
+      if ("routeMode" in saved) setRouteMode(saved.routeMode);
+      if ("routePreferNps" in saved) setRoutePreferNps(!!saved.routePreferNps);
+      if ("routePreferVertical" in saved) setRoutePreferVertical(!!saved.routePreferVertical);
+      if ("routeKeepPattern" in saved) setRouteKeepPattern(!!saved.routeKeepPattern);
+      if ("allowPatternSwitch" in saved) setAllowPatternSwitch(!!saved.allowPatternSwitch);
+      if ("patternSwitchPenalty" in saved) setPatternSwitchPenalty(Number(saved.patternSwitchPenalty) || 0);
+      if ("routeFixedPattern" in saved) setRouteFixedPattern(saved.routeFixedPattern);
+      if ("routePickNext" in saved) setRoutePickNext(saved.routePickNext);
+
+      if (saved.colors && typeof saved.colors === "object") setColors((prev) => ({ ...prev, ...saved.colors }));
+      if (Array.isArray(saved.patternColors)) {
+        setPatternColors((prev) => prev.map((c, i) => saved.patternColors[i] || c));
+      }
+    } catch {
+    } finally {
+      setStorageHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!storageHydrated) return;
+    try {
+      if (typeof window === "undefined") return;
+      window.localStorage.setItem(UI_STORAGE_KEY, JSON.stringify(persistedUiConfig));
+    } catch {
+    }
+  }, [storageHydrated, persistedUiConfig]);
+
+  function exportUiConfig() {
+    try {
+      const raw = JSON.stringify(persistedUiConfig, null, 2);
+      const blob = new Blob([raw], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const d = new Date();
+      const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}_${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}${String(d.getSeconds()).padStart(2, "0")}`;
+      a.href = url;
+      a.download = `mastil_interactivo_config_${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+    }
+  }
+
+  function importUiConfigFromFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const raw = String(reader.result || "");
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") throw new Error("JSON inválido");
+        if (typeof window === "undefined") return;
+        window.localStorage.setItem(UI_STORAGE_KEY, JSON.stringify(parsed));
+        window.location.reload();
+      } catch (e) {
+        if (typeof window !== "undefined") {
+          window.alert(`No pude importar la configuración: ${String(e?.message || e)}`);
+        }
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function resetUiConfig() {
+    try {
+      if (typeof window === "undefined") return;
+      const ok = window.confirm("Se borrará la configuración guardada y se recargará la página. ¿Continuar?");
+      if (!ok) return;
+      window.localStorage.removeItem(UI_STORAGE_KEY);
+      window.location.reload();
+    } catch {
+    }
+  }
+
   const scaleIntervals = useMemo(() => buildScaleIntervals(scaleName, customInput, rootPc), [scaleName, customInput, rootPc]);
+
+  useEffect(() => {
+    const root = appRootRef.current;
+    if (!root) return;
+
+    const controls = root.querySelectorAll("select, input, button");
+    controls.forEach((el) => {
+      const title = cleanUiText(el.getAttribute("title"));
+      if (title) return;
+      const inferred = inferControlTitle(el);
+      if (inferred) el.setAttribute("title", inferred);
+    });
+  });
 
   // Ajuste lógico de modos según la escala elegida
   useEffect(() => {
@@ -3573,6 +3922,7 @@ export default function FretboardScalesPage() {
   ]);
 
   useEffect(() => {
+    if (!nearAutoScaleSync) return;
     setNearSlots((prev) => {
       if (!prev?.length) return prev;
 
@@ -3610,11 +3960,12 @@ export default function FretboardScalesPage() {
       next[0] = { ...s0, ...patch };
       return next;
     });
-  }, [rootPc, scaleIntervals, preferSharps]);
+  }, [nearAutoScaleSync, rootPc, scaleIntervals, preferSharps]);
 
   // Auto-propuesta: si un slot NO está activo, lo ajustamos a grados diatónicos de la escala activa.
   // Se mantienen ii / IV / V como propuesta por defecto cuando existan en la escala.
   useEffect(() => {
+    if (!nearAutoScaleSync) return;
     setNearSlots((prev) => {
       if (!prev?.length) return prev;
 
@@ -3655,7 +4006,7 @@ export default function FretboardScalesPage() {
 
       return changed ? next : prev;
     });
-  }, [harmonizedScale]);
+  }, [nearAutoScaleSync, harmonizedScale]);
 
 
   const spelledChordNotes = useMemo(
@@ -4531,15 +4882,40 @@ export default function FretboardScalesPage() {
 
   return (
     <div className="min-h-screen overflow-x-auto bg-gradient-to-b from-slate-50 to-slate-100 text-slate-900">
-      <div className={wrap}>
+      <div ref={appRootRef} className={wrap}>
         <header className="mb-3">
           <h1 className="text-xl font-semibold">Mástil interactivo: escalas, patrones, rutas y acordes</h1>
           <p className="text-sm text-slate-600">
             Patrones: <b>5 boxes</b> (pentatónicas), <b>7 3NPS</b> (7 notas) y <b>CAGED</b>. Ruta: sigue la escala en orden y se restringe a patrones.
           </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button type="button" className={UI_BTN_SM + " w-auto px-3"} onClick={exportUiConfig}>
+              Exportar config
+            </button>
+            <button
+              type="button"
+              className={UI_BTN_SM + " w-auto px-3"}
+              onClick={() => importConfigInputRef.current && importConfigInputRef.current.click()}
+            >
+              Importar config
+            </button>
+            <button type="button" className={UI_BTN_SM + " w-auto px-3"} onClick={resetUiConfig}>
+              Restablecer
+            </button>
+            <input
+              ref={importConfigInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                importUiConfigFromFile(e.target.files && e.target.files[0]);
+                e.target.value = "";
+              }}
+            />
+          </div>
         </header>
 
-        <div className="grid gap-3 grid-cols-[1fr_150px]">
+        <div className="grid gap-3 grid-cols-[1fr_190px]">
           {/* IZQUIERDA */}
           <div className="space-y-4">
             {/* CONFIG ESCALAS */}
@@ -4840,7 +5216,7 @@ export default function FretboardScalesPage() {
                           <span className="ml-2 text-xs font-normal text-slate-600">(Notas: {spelledChordNotes.join(", ")})</span>
                         </div>
                       </div>
-                      <div className="grid items-end gap-2 grid-cols-[96px_210px_90px_200px_200px_130px_220px_56px]">
+                      <div className="grid items-stretch gap-2 grid-cols-[96px_210px_90px_200px_200px_130px_220px_56px]">
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Tono</label>
                           <div className="mt-1 flex items-center gap-1.5">
@@ -5140,8 +5516,20 @@ export default function FretboardScalesPage() {
                       <div>
                         <div className="text-sm font-semibold text-slate-800">Acordes cercanos</div>
                         <div className="text-xs text-slate-600">Selecciona hasta 4 acordes y busca digitaciones dentro de un rango. Ordena por cercanía al Acorde 1.</div>
+                        <div className="text-xs text-slate-500">Los acordes se ajustan automáticamente según la nota raíz y la escala activas.</div>
                       </div>
 
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-slate-700">Auto escala</span>
+                        <button
+                          type="button"
+                          className={`rounded-xl px-2 py-1 text-xs ring-1 ring-slate-200 shadow-sm ${nearAutoScaleSync ? "bg-slate-900 text-white" : "bg-white"}`}
+                          onClick={() => setNearAutoScaleSync((v) => !v)}
+                          title="Activa o desactiva el ajuste automático de acordes cercanos según la escala"
+                        >
+                          {nearAutoScaleSync ? "ON" : "OFF"}
+                        </button>
+                      </div>
                     </div>
 
                     <div className="mt-3 space-y-2">
@@ -5199,7 +5587,7 @@ export default function FretboardScalesPage() {
                               </div>
                             </div>
 
-                            <div className="mt-2 grid items-end gap-2 grid-cols-[96px_210px_90px_200px_200px_130px_220px_56px]">
+                            <div className="mt-2 grid items-stretch gap-2 grid-cols-[96px_210px_90px_200px_200px_130px_220px_56px]">
                               <div className="min-w-0">
                                 <label className={UI_LABEL_SM}>Tono</label>
                                 <div className="mt-1 flex items-center gap-1.5">
@@ -5469,7 +5857,7 @@ export default function FretboardScalesPage() {
           </div>
 
           {/* DERECHA */}
-          <aside className="space-y-4 max-w-[150px]">
+          <aside className="space-y-4 max-w-[190px]">
             <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
               <div className="mb-2 text-sm font-semibold text-slate-800">Colores (círculos)</div>
               <div className="grid grid-cols-1 gap-2">
@@ -5551,7 +5939,7 @@ export default function FretboardScalesPage() {
         </div>
               <footer className="mt-6 flex items-center justify-between border-t border-slate-200 pt-3 text-xs text-slate-600">
           <span>Creado por: Jesus Quevedo Rodriguez</span>
-          <span>ver. 1.3 · 2026-03-12 08:42</span>
+          <span>{`ver. 1.3 · ${browserBuildStamp}`}</span>
         </footer>
       </div>
     </div>
