@@ -4840,7 +4840,7 @@ export default function FretboardScalesPage() {
                           <span className="ml-2 text-xs font-normal text-slate-600">(Notas: {spelledChordNotes.join(", ")})</span>
                         </div>
                       </div>
-                      <div className="grid items-end gap-2 grid-cols-[96px_210px_90px_200px_200px_130px_290px]">
+                      <div className="grid items-end gap-2 grid-cols-[96px_210px_90px_200px_200px_130px_220px_56px]">
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Tono</label>
                           <div className="mt-1 flex items-center gap-1.5">
@@ -5070,68 +5070,63 @@ export default function FretboardScalesPage() {
                           </div>
                         </div>
 
-                        <div className="min-w-0 pt-[8px]">
-                          <div className="flex items-center justify-between gap-2">
-                            <label className={UI_LABEL_SM}>Voicing ({chordVoicings.length} opciones)</label>
-                            {chordDbLastUrl ? (
-                              <a className="text-[11px] text-slate-600 underline" href={chordDbLastUrl} target="_blank" rel="noreferrer">
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM}>Voicing ({chordVoicings.length} opciones)</label>
+                          <div className="mt-1 flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              className={UI_BTN_SM}
+                              title="Anterior"
+                              onClick={() => setChordVoicingIdx((i) => (chordVoicings.length ? (i - 1 + chordVoicings.length) % chordVoicings.length : 0))}
+                              disabled={!chordVoicings.length}
+                            >
+                              <ChevronLeft className="h-4 w-4" />
+                            </button>
+
+                            <select
+                              className={UI_SELECT_SM + " min-w-0 flex-1 max-w-[152px]"}
+                              value={chordVoicings[chordVoicingIdx]?.frets || ""}
+                              onChange={(e) => {
+                                const f = e.target.value;
+                                const idx = chordVoicings.findIndex((v) => v.frets === f);
+                                if (idx >= 0) setChordVoicingIdx(idx);
+                              }}
+                              disabled={!chordVoicings.length}
+                            >
+                              {chordVoicings.map((v, i) => (
+                                <option key={v.frets} value={v.frets}>
+                                  {`${i + 1}. ${v.frets} (dist ${v.reach ?? (v.span + 1)})`}
+                                </option>
+                              ))}
+                            </select>
+
+                            <button
+                              type="button"
+                              className={UI_BTN_SM}
+                              title="Siguiente"
+                              onClick={() => setChordVoicingIdx((i) => (chordVoicings.length ? (i + 1) % chordVoicings.length : 0))}
+                              disabled={!chordVoicings.length}
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                          </div>
+                          {chordDbLastUrl ? (
+                            <div className="mt-1 text-[11px] text-slate-600">
+                              <a className="underline" href={chordDbLastUrl} target="_blank" rel="noreferrer">
                                 JSON
                               </a>
-                            ) : null}
-                          </div>
-
-                          <div className="mt-1 flex items-end gap-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                className={UI_BTN_SM}
-                                title="Anterior"
-                                onClick={() => setChordVoicingIdx((i) => (chordVoicings.length ? (i - 1 + chordVoicings.length) % chordVoicings.length : 0))}
-                                disabled={!chordVoicings.length}
-                              >
-                                <ChevronLeft className="h-4 w-4" />
-                              </button>
-
-                              <select
-                                className={UI_SELECT_SM + " min-w-0 flex-1 max-w-[152px]"}
-                                value={chordVoicings[chordVoicingIdx]?.frets || ""}
-                                onChange={(e) => {
-                                  const f = e.target.value;
-                                  const idx = chordVoicings.findIndex((v) => v.frets === f);
-                                  if (idx >= 0) setChordVoicingIdx(idx);
-                                }}
-                                disabled={!chordVoicings.length}
-                              >
-                                {chordVoicings.map((v, i) => (
-                                  <option key={v.frets} value={v.frets}>
-                                    {`${i + 1}. ${v.frets} (dist ${v.reach ?? (v.span + 1)})`}
-                                  </option>
-                                ))}
-                              </select>
-
-                              <button
-                                type="button"
-                                className={UI_BTN_SM}
-                                title="Siguiente"
-                                onClick={() => setChordVoicingIdx((i) => (chordVoicings.length ? (i + 1) % chordVoicings.length : 0))}
-                                disabled={!chordVoicings.length}
-                              >
-                                <ChevronRight className="h-4 w-4" />
-                              </button>
                             </div>
-
-                            <div className="w-[56px]">
-                              <label className={UI_LABEL_SM}>Dist.</label>
-                              <select className={UI_SELECT_SM + " w-full"} value={chordMaxDist} onChange={(e) => setChordMaxDist(parseInt(e.target.value, 10))}>
-                                {[4, 5, 6].map((n) => (
-                                  <option key={n} value={n}>{n}</option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-
+                          ) : null}
                           {chordDbError ? <div className="mt-1 text-[11px] font-semibold text-rose-600">{chordDbError}</div> : null}
-                          
+                        </div>
+
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM}>Dist.</label>
+                          <select className={UI_SELECT_SM + " mt-1 w-full"} value={chordMaxDist} onChange={(e) => setChordMaxDist(parseInt(e.target.value, 10))}>
+                            {[4, 5, 6].map((n) => (
+                              <option key={n} value={n}>{n}</option>
+                            ))}
+                          </select>
                         </div>
                       </div>
                     </div>
@@ -5204,7 +5199,7 @@ export default function FretboardScalesPage() {
                               </div>
                             </div>
 
-                            <div className="mt-2 grid items-end gap-2 grid-cols-[96px_210px_90px_200px_200px_130px_290px]">
+                            <div className="mt-2 grid items-end gap-2 grid-cols-[96px_210px_90px_200px_200px_130px_220px_56px]">
                               <div className="min-w-0">
                                 <label className={UI_LABEL_SM}>Tono</label>
                                 <div className="mt-1 flex items-center gap-1.5">
@@ -5388,80 +5383,77 @@ export default function FretboardScalesPage() {
                                 </div>
                               </div>
 
-                              <div className="min-w-0 flex-1 pt-[8px]">
+                              <div className="min-w-0 flex-1">
                                 <label className={UI_LABEL_SM}>Digitación en rango ({options.length} opciones)</label>
-                                <div className="mt-1 flex items-end gap-1.5">
-                                  <div className="flex items-center gap-1.5">
-                                    <button
-                                      type="button"
-                                      className={UI_BTN_SM}
-                                      title="Anterior"
-                                      onClick={() => {
-                                        if (!options.length) return;
-                                        const cur = slot.selFrets ?? options[0].frets;
-                                        let iCur = options.findIndex((v) => v.frets === cur);
-                                        if (iCur < 0) iCur = 0;
-                                        const iNew = (iCur - 1 + options.length) % options.length;
-                                        updateNearSlot(idx, { selFrets: options[iNew].frets });
-                                      }}
-                                      disabled={disableAll || !options.length}
-                                    >
-                                      <ChevronLeft className="h-4 w-4" />
-                                    </button>
+                                <div className="mt-1 flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    className={UI_BTN_SM}
+                                    title="Anterior"
+                                    onClick={() => {
+                                      if (!options.length) return;
+                                      const cur = slot.selFrets ?? options[0].frets;
+                                      let iCur = options.findIndex((v) => v.frets === cur);
+                                      if (iCur < 0) iCur = 0;
+                                      const iNew = (iCur - 1 + options.length) % options.length;
+                                      updateNearSlot(idx, { selFrets: options[iNew].frets });
+                                    }}
+                                    disabled={disableAll || !options.length}
+                                  >
+                                    <ChevronLeft className="h-4 w-4" />
+                                  </button>
 
-                                    <select
-                                      className={UI_SELECT_SM + " min-w-0 flex-1 max-w-[152px]"}
-                                      value={slot.selFrets || "(auto)"}
-                                      onChange={(e) => {
-                                        const v = e.target.value;
-                                        updateNearSlot(idx, { selFrets: v === "(auto)" ? null : v });
-                                      }}
-                                      disabled={disableAll}
-                                    >
-                                      <option value="(auto)">(auto)</option>
-                                      {options.map((v) => (
-                                        <option key={v.frets} value={v.frets}>
-                                          {`${v.frets} (min ${v.minFret} · dist ${v.reach ?? (v.span + 1)})`}
-                                        </option>
-                                      ))}
-                                    </select>
+                                  <select
+                                    className={UI_SELECT_SM + " min-w-0 flex-1 max-w-[152px]"}
+                                    value={slot.selFrets || "(auto)"}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      updateNearSlot(idx, { selFrets: v === "(auto)" ? null : v });
+                                    }}
+                                    disabled={disableAll}
+                                  >
+                                    <option value="(auto)">(auto)</option>
+                                    {options.map((v) => (
+                                      <option key={v.frets} value={v.frets}>
+                                        {`${v.frets} (min ${v.minFret} · dist ${v.reach ?? (v.span + 1)})`}
+                                      </option>
+                                    ))}
+                                  </select>
 
-                                    <button
-                                      type="button"
-                                      className={UI_BTN_SM}
-                                      title="Siguiente"
-                                      onClick={() => {
-                                        if (!options.length) return;
-                                        const cur = slot.selFrets ?? options[0].frets;
-                                        let iCur = options.findIndex((v) => v.frets === cur);
-                                        if (iCur < 0) iCur = 0;
-                                        const iNew = (iCur + 1) % options.length;
-                                        updateNearSlot(idx, { selFrets: options[iNew].frets });
-                                      }}
-                                      disabled={disableAll || !options.length}
-                                    >
-                                      <ChevronRight className="h-4 w-4" />
-                                    </button>
-                                  </div>
-
-                                  <div className="w-[56px]">
-                                    <label className={UI_LABEL_SM}>Dist.</label>
-                                    <select
-                                      className={UI_SELECT_SM + " w-full"}
-                                      value={slot.maxDist || 4}
-                                      onChange={(e) => updateNearSlot(idx, { maxDist: parseInt(e.target.value, 10), selFrets: null })}
-                                      disabled={disableAll}
-                                    >
-                                      {[4, 5, 6].map((n) => (
-                                        <option key={n} value={n}>{n}</option>
-                                      ))}
-                                    </select>
-                                  </div>
+                                  <button
+                                    type="button"
+                                    className={UI_BTN_SM}
+                                    title="Siguiente"
+                                    onClick={() => {
+                                      if (!options.length) return;
+                                      const cur = slot.selFrets ?? options[0].frets;
+                                      let iCur = options.findIndex((v) => v.frets === cur);
+                                      if (iCur < 0) iCur = 0;
+                                      const iNew = (iCur + 1) % options.length;
+                                      updateNearSlot(idx, { selFrets: options[iNew].frets });
+                                    }}
+                                    disabled={disableAll || !options.length}
+                                  >
+                                    <ChevronRight className="h-4 w-4" />
+                                  </button>
                                 </div>
                                 <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-                                  
                                   {errMsg ? <div className="font-semibold text-rose-600">{errMsg}</div> : null}
                                 </div>
+                              </div>
+
+                              <div className="min-w-0">
+                                <label className={UI_LABEL_SM}>Dist.</label>
+                                <select
+                                  className={UI_SELECT_SM + " mt-1 w-full"}
+                                  value={slot.maxDist || 4}
+                                  onChange={(e) => updateNearSlot(idx, { maxDist: parseInt(e.target.value, 10), selFrets: null })}
+                                  disabled={disableAll}
+                                >
+                                  {[4, 5, 6].map((n) => (
+                                    <option key={n} value={n}>{n}</option>
+                                  ))}
+                                </select>
                               </div>
                             </div>
                           </div>
@@ -5559,7 +5551,7 @@ export default function FretboardScalesPage() {
         </div>
               <footer className="mt-6 flex items-center justify-between border-t border-slate-200 pt-3 text-xs text-slate-600">
           <span>Creado por: Jesus Quevedo Rodriguez</span>
-          <span>ver. 1.3 · 2026-03-12 11:01</span>
+          <span>ver. 1.3 · 2026-03-12 08:42</span>
         </footer>
       </div>
     </div>
