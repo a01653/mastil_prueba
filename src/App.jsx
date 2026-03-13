@@ -623,8 +623,8 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "1.10";
-const APP_VERSION_STAMP = "2026-03-13 08:05";
+const APP_VERSION = "1.12";
+const APP_VERSION_STAMP = "2026-03-13 08:22";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -2827,6 +2827,7 @@ export default function FretboardScalesPage() {
   });
 
   useEffect(() => {
+    if (!storageHydrated) return;
     setNearSlots((prev) => {
       let changed = false;
       const next = prev.map((slot) => {
@@ -3797,8 +3798,9 @@ export default function FretboardScalesPage() {
   const chordVoicingsSig = useMemo(() => chordVoicings.map((v) => v.frets).join("|"), [chordVoicings]);
 
   useEffect(() => {
+    if (!storageHydrated) return;
     if (!chordVoicings.length) {
-      if (chordVoicingIdx !== 0) setChordVoicingIdx(0);
+      if (!pendingChordRestoreRef.current.active && chordVoicingIdx !== 0) setChordVoicingIdx(0);
       return;
     }
 
@@ -3817,7 +3819,7 @@ export default function FretboardScalesPage() {
           pendingChordRestoreRef.current = { active: false, frets: null };
           return;
         }
-        pendingChordRestoreRef.current = { active: false, frets: null };
+        return;
       }
     }
 
@@ -3838,9 +3840,10 @@ export default function FretboardScalesPage() {
       setChordVoicingIdx(idx);
     }
     if (nextFrets !== chordSelectedFrets) setChordSelectedFrets(nextFrets);
-  }, [chordVoicingsSig, chordSelectedFrets]);
+  }, [storageHydrated, chordVoicingsSig, chordSelectedFrets]);
 
   useEffect(() => {
+    if (!storageHydrated) return;
     const current = chordVoicings[chordVoicingIdx] || chordVoicings[0] || null;
     const selectedStillExists = !!chordSelectedFrets && chordVoicings.some((v) => v.frets === chordSelectedFrets);
 
@@ -3854,7 +3857,7 @@ export default function FretboardScalesPage() {
       return;
     }
     if (current) lastChordVoicingRef.current = current;
-  }, [chordVoicingIdx, chordVoicingsSig, chordSelectedFrets]);
+  }, [storageHydrated, chordVoicingIdx, chordVoicingsSig, chordSelectedFrets]);
 
   const activeChordVoicing = chordVoicings[chordVoicingIdx] || chordVoicings[0] || null;
 
@@ -4244,9 +4247,10 @@ export default function FretboardScalesPage() {
 
       return changed ? next : prev;
     });
-  }, [nearRankSig]);
+  }, [storageHydrated, nearRankSig]);
 
   useEffect(() => {
+    if (!storageHydrated) return;
     if (!nearSelectedSig) return;
     nearComputed.selected.forEach((v, i) => {
       if (skipNearVoicingRefSyncRef.current[i]) {
@@ -4255,7 +4259,7 @@ export default function FretboardScalesPage() {
       }
       if (v) lastNearVoicingsRef.current[i] = v;
     });
-  }, [nearSelectedSig]);
+  }, [storageHydrated, nearSelectedSig]);
 
 
   const spelledScaleNotes = useMemo(() => spellScaleNotes({ rootPc, scaleIntervals, preferSharps }), [rootPc, scaleIntervals, preferSharps]);
@@ -6418,7 +6422,7 @@ export default function FretboardScalesPage() {
         </div>
               <footer className="mt-6 flex items-center justify-between border-t border-slate-200 pt-3 text-xs text-slate-600">
           <span>Creado por: Jesus Quevedo Rodriguez</span>
-          <span>{`ver. ${APP_VERSION} · ${APP_VERSION_STAMP}`}</span>
+          <span>{`ver. ${APP_VERSION}`}</span>
         </footer>
       </div>
     </div>
