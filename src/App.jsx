@@ -625,7 +625,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "1.17";
+const APP_VERSION = "1.18";
 const APP_VERSION_STAMP = "2026-03-13 08:22";
 
 function chordDbUrl(keyName, suffix) {
@@ -1032,6 +1032,10 @@ function positionFormFromEffectiveForm(form, fallback = "closed") {
 
 function dropFormFromEffectiveForm(form) {
   return isDropForm(form) ? form : "none";
+}
+
+function structureUsesManualForm(structure) {
+  return structure !== "chord";
 }
 
 function normalizeChordFormToInversion(form) {
@@ -5217,12 +5221,8 @@ export default function FretboardScalesPage() {
                 title="Define el modo del mástil Patrones (Auto/Boxes/3NPS/CAGED)"
               >
                 <option value="auto">Auto</option>
-                <option value="boxes" disabled={!(scaleIntervals.length === 5)}>
-                  Boxes (pentatónica)
-                </option>
-                <option value="nps" disabled={!(scaleIntervals.length === 7)}>
-                  3NPS
-                </option>
+                {scaleIntervals.length === 5 ? <option value="boxes">Boxes (pentatónica)</option> : null}
+                {scaleIntervals.length === 7 ? <option value="nps">3NPS</option> : null}
                 <option value="caged">CAGED</option>
               </select>
             </div>
@@ -5684,8 +5684,8 @@ export default function FretboardScalesPage() {
                         <option value="auto">Auto</option>
                         <option value="free">Libre</option>
                         <option value="pos">Posición/diagonal (slide)</option>
-                        <option value="nps">3NPS</option>
-                        <option value="penta">Pentatónica (boxes)</option>
+                        {(!isPentatonicScale && scaleIntervals.length === 7) ? <option value="nps">3NPS</option> : null}
+                        {isPentatonicScale ? <option value="penta">Pentatónica (boxes)</option> : null}
                         <option value="caged">CAGED</option>
                       </select>
                     </div>
@@ -5884,49 +5884,53 @@ export default function FretboardScalesPage() {
 
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Forma</label>
-                          <div className="mt-1 grid grid-cols-2 gap-1.5">
-                            <select
-                              className={UI_SELECT_SM}
-                              value={chordPositionForm}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setChordPositionForm(v);
-                                if (!isDropForm(chordForm)) setChordForm(v);
-                              }}
-                              disabled={chordStructure === "chord"}
-                              title="Posición del voicing: cerrado o abierto"
-                            >
-                              <option value="closed">Cerrado</option>
-                              <option value="open">Abierto</option>
-                            </select>
-                            <select
-                              className={UI_SELECT_SM}
-                              value={dropFormFromEffectiveForm(chordForm)}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setChordForm(v === "none" ? chordPositionForm : v);
-                              }}
-                              disabled={chordStructure === "chord"}
-                              title="Tipo de drop. Usa — para voicing libre"
-                            >
-                              {DROP_FORM_OPTIONS.map((form) => (
-                                <option
-                                  key={form.value}
-                                  value={form.value}
-                                  disabled={form.value !== "none" && !isStrictFourNoteDropEligible({
-                                    structure: chordStructure,
-                                    ext7: chordExt7,
-                                    ext6: chordExt6,
-                                    ext9: chordExt9,
-                                    ext11: chordExt11,
-                                    ext13: chordExt13,
-                                  })}
-                                >
-                                  {form.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
+                          {structureUsesManualForm(chordStructure) ? (
+                            <div className="mt-1 grid grid-cols-2 gap-1.5">
+                              <select
+                                className={UI_SELECT_SM}
+                                value={chordPositionForm}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setChordPositionForm(v);
+                                  if (!isDropForm(chordForm)) setChordForm(v);
+                                }}
+                                title="Posición del voicing: cerrado o abierto"
+                              >
+                                <option value="closed">Cerrado</option>
+                                <option value="open">Abierto</option>
+                              </select>
+                              <select
+                                className={UI_SELECT_SM}
+                                value={dropFormFromEffectiveForm(chordForm)}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setChordForm(v === "none" ? chordPositionForm : v);
+                                }}
+                                title="Tipo de drop. Usa — para voicing libre"
+                              >
+                                {DROP_FORM_OPTIONS.map((form) => (
+                                  <option
+                                    key={form.value}
+                                    value={form.value}
+                                    disabled={form.value !== "none" && !isStrictFourNoteDropEligible({
+                                      structure: chordStructure,
+                                      ext7: chordExt7,
+                                      ext6: chordExt6,
+                                      ext9: chordExt9,
+                                      ext11: chordExt11,
+                                      ext13: chordExt13,
+                                    })}
+                                  >
+                                    {form.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ) : (
+                            <div className="mt-1 flex h-7 items-center rounded-xl border border-slate-200 bg-slate-100 px-2 text-xs text-slate-500">
+                              Automática
+                            </div>
+                          )}
                         </div>
 
                         <div className="min-w-0">
@@ -5954,65 +5958,68 @@ export default function FretboardScalesPage() {
                                   const v = e.target.checked;
                                   setChordExt6(v);
                                   if (v) setChordExt13(false);
-                                  if (chordStructure === "tetrad" && v) {
+                                  if (chordStructure === "tetrad") {
                                     setChordExt9(false);
                                     setChordExt11(false);
                                     setChordExt13(false);
                                   }
                                 }}
                                 disabled={chordStructure === "triad"}
-                              />{" "}
-                              6
+                              /> 6
                             </label>
-                            <label className="inline-flex items-center gap-2">
-                              <input type="checkbox" checked={chordExt9}
-                                onChange={(e) => {
-                                  const v = e.target.checked;
-                                  if (chordStructure === "tetrad") {
-                                    setChordExt9(v);
-                                    if (v) {
-                                      setChordExt11(false);
-                                      setChordExt13(false);
-                                    }
-                                  } else {
-                                    setChordExt9(v);
-                                  }
-                                }}
-                                disabled={chordStructure === "triad"} /> 9
-                            </label>
-                            <label className="inline-flex items-center gap-2">
-                              <input type="checkbox" checked={chordExt11}
-                                onChange={(e) => {
-                                  const v = e.target.checked;
-                                  if (chordStructure === "tetrad") {
-                                    setChordExt11(v);
-                                    if (v) {
-                                      setChordExt9(false);
-                                      setChordExt13(false);
-                                    }
-                                  } else {
-                                    setChordExt11(v);
-                                  }
-                                }}
-                                disabled={chordStructure === "triad"} /> 11
-                            </label>
-                            <label className="inline-flex items-center gap-2">
-                              <input type="checkbox" checked={chordExt13}
-                                onChange={(e) => {
-                                  const v = e.target.checked;
-                                  if (chordStructure === "tetrad") {
-                                    setChordExt13(v);
-                                    if (v) {
-                                      setChordExt6(false);
-                                      setChordExt9(false);
-                                      setChordExt11(false);
-                                    }
-                                  } else {
-                                    setChordExt13(v);
-                                  }
-                                }}
-                                disabled={chordStructure === "triad"} /> 13
-                            </label>
+                            {chordStructure !== "triad" ? (
+                              <>
+                                <label className="inline-flex items-center gap-2">
+                                  <input type="checkbox" checked={chordExt9}
+                                    onChange={(e) => {
+                                      const v = e.target.checked;
+                                      if (chordStructure === "tetrad") {
+                                        setChordExt9(v);
+                                        if (v) {
+                                          setChordExt11(false);
+                                          setChordExt13(false);
+                                        }
+                                      } else {
+                                        setChordExt9(v);
+                                      }
+                                    }}
+                                  /> 9
+                                </label>
+                                <label className="inline-flex items-center gap-2">
+                                  <input type="checkbox" checked={chordExt11}
+                                    onChange={(e) => {
+                                      const v = e.target.checked;
+                                      if (chordStructure === "tetrad") {
+                                        setChordExt11(v);
+                                        if (v) {
+                                          setChordExt9(false);
+                                          setChordExt13(false);
+                                        }
+                                      } else {
+                                        setChordExt11(v);
+                                      }
+                                    }}
+                                  /> 11
+                                </label>
+                                <label className="inline-flex items-center gap-2">
+                                  <input type="checkbox" checked={chordExt13}
+                                    onChange={(e) => {
+                                      const v = e.target.checked;
+                                      if (chordStructure === "tetrad") {
+                                        setChordExt13(v);
+                                        if (v) {
+                                          setChordExt6(false);
+                                          setChordExt9(false);
+                                          setChordExt11(false);
+                                        }
+                                      } else {
+                                        setChordExt13(v);
+                                      }
+                                    }}
+                                  /> 13
+                                </label>
+                              </>
+                            ) : null}
                           </div>
                         </div>
 
@@ -6296,55 +6303,61 @@ export default function FretboardScalesPage() {
 
                               <div className="min-w-0">
                                 <label className={UI_LABEL_SM}>Forma</label>
-                                <div className="mt-1 grid grid-cols-2 gap-1.5">
-                                  <select
-                                    className={UI_SELECT_SM}
-                                    value={slot.positionForm || positionFormFromEffectiveForm(slot.form)}
-                                    onChange={(e) => {
-                                      const v = e.target.value;
-                                      updateNearSlot(idx, {
-                                        positionForm: v,
-                                        form: isDropForm(slot.form) ? slot.form : v,
-                                        selFrets: null,
-                                      });
-                                    }}
-                                    disabled={disableAll || slot.structure === "chord"}
-                                    title="Posición del voicing: cerrado o abierto"
-                                  >
-                                    <option value="closed">Cerrado</option>
-                                    <option value="open">Abierto</option>
-                                  </select>
-                                  <select
-                                    className={UI_SELECT_SM}
-                                    value={dropFormFromEffectiveForm(slot.form)}
-                                    onChange={(e) => {
-                                      const v = e.target.value;
-                                      updateNearSlot(idx, {
-                                        form: v === "none" ? (slot.positionForm || "closed") : v,
-                                        selFrets: null,
-                                      });
-                                    }}
-                                    disabled={disableAll || slot.structure === "chord"}
-                                    title="Tipo de drop. Usa — para voicing libre"
-                                  >
-                                    {DROP_FORM_OPTIONS.map((form) => (
-                                      <option
-                                        key={form.value}
-                                        value={form.value}
-                                        disabled={form.value !== "none" && !isStrictFourNoteDropEligible({
-                                          structure: slot.structure,
-                                          ext7: slot.ext7,
-                                          ext6: slot.ext6,
-                                          ext9: slot.ext9,
-                                          ext11: slot.ext11,
-                                          ext13: slot.ext13,
-                                        })}
-                                      >
-                                        {form.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
+                                {structureUsesManualForm(slot.structure) ? (
+                                  <div className="mt-1 grid grid-cols-2 gap-1.5">
+                                    <select
+                                      className={UI_SELECT_SM}
+                                      value={slot.positionForm || positionFormFromEffectiveForm(slot.form)}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        updateNearSlot(idx, {
+                                          positionForm: v,
+                                          form: isDropForm(slot.form) ? slot.form : v,
+                                          selFrets: null,
+                                        });
+                                      }}
+                                      disabled={disableAll}
+                                      title="Posición del voicing: cerrado o abierto"
+                                    >
+                                      <option value="closed">Cerrado</option>
+                                      <option value="open">Abierto</option>
+                                    </select>
+                                    <select
+                                      className={UI_SELECT_SM}
+                                      value={dropFormFromEffectiveForm(slot.form)}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        updateNearSlot(idx, {
+                                          form: v === "none" ? (slot.positionForm || "closed") : v,
+                                          selFrets: null,
+                                        });
+                                      }}
+                                      disabled={disableAll}
+                                      title="Tipo de drop. Usa — para voicing libre"
+                                    >
+                                      {DROP_FORM_OPTIONS.map((form) => (
+                                        <option
+                                          key={form.value}
+                                          value={form.value}
+                                          disabled={form.value !== "none" && !isStrictFourNoteDropEligible({
+                                            structure: slot.structure,
+                                            ext7: slot.ext7,
+                                            ext6: slot.ext6,
+                                            ext9: slot.ext9,
+                                            ext11: slot.ext11,
+                                            ext13: slot.ext13,
+                                          })}
+                                        >
+                                          {form.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                ) : (
+                                  <div className="mt-1 flex h-7 items-center rounded-xl border border-slate-200 bg-slate-100 px-2 text-xs text-slate-500">
+                                    Automática
+                                  </div>
+                                )}
                               </div>
 
                               <div className="min-w-0">
@@ -6370,18 +6383,21 @@ export default function FretboardScalesPage() {
                                       checked={!!slot.ext6}
                                       onChange={(e) => updateNearSlot(idx, { ext6: e.target.checked, selFrets: null })}
                                       disabled={disableAll || slot.structure === "triad"}
-                                    />{" "}
-                                    6
+                                    /> 6
                                   </label>
-                                  <label className="inline-flex items-center gap-2">
-                                    <input type="checkbox" checked={!!slot.ext9} onChange={(e) => updateNearSlot(idx, { ext9: e.target.checked, selFrets: null })} disabled={disableAll || slot.structure === "triad"} /> 9
-                                  </label>
-                                  <label className="inline-flex items-center gap-2">
-                                    <input type="checkbox" checked={!!slot.ext11} onChange={(e) => updateNearSlot(idx, { ext11: e.target.checked, selFrets: null })} disabled={disableAll || slot.structure === "triad"} /> 11
-                                  </label>
-                                  <label className="inline-flex items-center gap-2">
-                                    <input type="checkbox" checked={!!slot.ext13} onChange={(e) => updateNearSlot(idx, { ext13: e.target.checked, selFrets: null })} disabled={disableAll || slot.structure === "triad"} /> 13
-                                  </label>
+                                  {slot.structure !== "triad" ? (
+                                    <>
+                                      <label className="inline-flex items-center gap-2">
+                                        <input type="checkbox" checked={!!slot.ext9} onChange={(e) => updateNearSlot(idx, { ext9: e.target.checked, selFrets: null })} disabled={disableAll} /> 9
+                                      </label>
+                                      <label className="inline-flex items-center gap-2">
+                                        <input type="checkbox" checked={!!slot.ext11} onChange={(e) => updateNearSlot(idx, { ext11: e.target.checked, selFrets: null })} disabled={disableAll} /> 11
+                                      </label>
+                                      <label className="inline-flex items-center gap-2">
+                                        <input type="checkbox" checked={!!slot.ext13} onChange={(e) => updateNearSlot(idx, { ext13: e.target.checked, selFrets: null })} disabled={disableAll} /> 13
+                                      </label>
+                                    </>
+                                  ) : null}
                                 </div>
                               </div>
 
