@@ -513,6 +513,60 @@ function buildScaleDegreeChord({ scaleIntervals, degreeIndex, withSeventh = fals
   };
 }
 
+function isMinorHarmonyScaleName(scaleName) {
+  const n = normalizeScaleName(scaleName);
+  return [
+    "Menor natural",
+    "Menor armónica",
+    "Menor melódica (asc)",
+    "Eólica (Aeolian)",
+  ].includes(n);
+}
+
+function buildHarmonyDegreeChord({ scaleName, harmonyMode, scaleIntervals, degreeIndex, withSeventh = false }) {
+  const built = buildScaleDegreeChord({ scaleIntervals, degreeIndex, withSeventh });
+  const normalized = normalizeScaleName(scaleName);
+
+  if (
+    harmonyMode === "functional_minor" &&
+    isMinorHarmonyScaleName(normalized) &&
+    scaleIntervals.length >= 7 &&
+    degreeIndex === 4
+  ) {
+    const rootOffset = mod12(scaleIntervals[degreeIndex % scaleIntervals.length]);
+    if (withSeventh) {
+      return {
+        rootOffset,
+        quality: "dom",
+        suspension: "none",
+        structure: "tetrad",
+        inversion: "root",
+        form: "closed",
+        ext7: true,
+        ext6: false,
+        ext9: false,
+        ext11: false,
+        ext13: false,
+      };
+    }
+    return {
+      rootOffset,
+      quality: "maj",
+      suspension: "none",
+      structure: "triad",
+      inversion: "root",
+      form: "closed",
+      ext7: false,
+      ext6: false,
+      ext9: false,
+      ext11: false,
+      ext13: false,
+    };
+  }
+
+  return built;
+}
+
 const ROMAN_DEGREES = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX"];
 
 function tetradSuffixFromOffsets(thirdOffset, fifthOffset, seventhOffset) {
@@ -531,28 +585,27 @@ function tetradSuffixFromOffsets(thirdOffset, fifthOffset, seventhOffset) {
   return "?";
 }
 
-function buildScaleTetradHarmonization({ rootPc, scaleIntervals, spelledScaleNotes, preferSharps }) {
+function buildScaleTetradHarmonization({ rootPc, scaleName, harmonyMode, scaleIntervals, spelledScaleNotes, preferSharps }) {
   const n = scaleIntervals.length;
   if (n < 4) return [];
 
   return scaleIntervals.map((rootOffset, i) => {
+    const functionalMinorDominant =
+      harmonyMode === "functional_minor" &&
+      isMinorHarmonyScaleName(scaleName) &&
+      n >= 7 &&
+      i === 4;
+
     const thirdOffset = mod12(scaleIntervals[(i + 2) % n] - rootOffset);
     const fifthOffset = mod12(scaleIntervals[(i + 4) % n] - rootOffset);
     const seventhOffset = mod12(scaleIntervals[(i + 6) % n] - rootOffset);
-    const suffix = tetradSuffixFromOffsets(thirdOffset, fifthOffset, seventhOffset);
+    const suffix = functionalMinorDominant ? "7" : tetradSuffixFromOffsets(thirdOffset, fifthOffset, seventhOffset);
     const degreeName = `${ROMAN_DEGREES[i] || `${i + 1}`}${suffix}`;
     const noteRoot = spelledScaleNotes[i] || pcToName(mod12(rootPc + rootOffset), preferSharps);
-    const chordNotes = [
-      spelledScaleNotes[i] || pcToName(mod12(rootPc + rootOffset), preferSharps),
-      spelledScaleNotes[(i + 2) % n] || pcToName(mod12(rootPc + scaleIntervals[(i + 2) % n]), preferSharps),
-      spelledScaleNotes[(i + 4) % n] || pcToName(mod12(rootPc + scaleIntervals[(i + 4) % n]), preferSharps),
-      spelledScaleNotes[(i + 6) % n] || pcToName(mod12(rootPc + scaleIntervals[(i + 6) % n]), preferSharps),
-    ];
 
     return {
       degreeName,
       noteName: `${noteRoot}${suffix}`,
-      chordNotes,
     };
   });
 }
@@ -570,8 +623,8 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "1.6";
-const APP_VERSION_STAMP = "2026-03-12 15:42";
+const APP_VERSION = "1.7";
+const APP_VERSION_STAMP = "2026-03-13 07:20";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -2606,6 +2659,7 @@ export default function FretboardScalesPage() {
   const [scaleRootLetter, setScaleRootLetter] = useState("F");
   const [scaleRootAcc, setScaleRootAcc] = useState(null); // null | "flat" | "sharp"
   const [scaleName, setScaleName] = useState("Mayor");
+  const [harmonyMode, setHarmonyMode] = useState("diatonic");
   const isPentatonicScale = scaleName === "Pentatónica mayor" || scaleName === "Pentatónica menor";
   const [maxFret, setMaxFret] = useState(15);
 
@@ -2698,6 +2752,7 @@ export default function FretboardScalesPage() {
   const [chordDbError, setChordDbError] = useState(null);
   const [chordDbLastUrl, setChordDbLastUrl] = useState(null);
   const [chordVoicingIdx, setChordVoicingIdx] = useState(0);
+  const [chordSelectedFrets, setChordSelectedFrets] = useState(null);
   const [chordMaxDist, setChordMaxDist] = useState(4);
   const lastChordVoicingRef = useRef(null);
   const skipChordVoicingRefSyncRef = useRef(false);
@@ -2877,6 +2932,7 @@ export default function FretboardScalesPage() {
     showIntervalsLabel,
     showNotesLabel,
     rootPc,
+    harmonyMode,
     scaleRootLetter,
     scaleRootAcc,
     scaleName,
@@ -2900,6 +2956,7 @@ export default function FretboardScalesPage() {
     chordExt11,
     chordExt13,
     chordVoicingIdx,
+    chordSelectedFrets,
     chordMaxDist,
     nearWindowStart,
     nearWindowSize,
@@ -2924,6 +2981,7 @@ export default function FretboardScalesPage() {
     showIntervalsLabel,
     showNotesLabel,
     rootPc,
+    harmonyMode,
     scaleRootLetter,
     scaleRootAcc,
     scaleName,
@@ -2947,6 +3005,7 @@ export default function FretboardScalesPage() {
     chordExt11,
     chordExt13,
     chordVoicingIdx,
+    chordSelectedFrets,
     chordMaxDist,
     nearWindowStart,
     nearWindowSize,
@@ -3016,6 +3075,7 @@ export default function FretboardScalesPage() {
       if ("showIntervalsLabel" in saved) setShowIntervalsLabel(sanitizeBoolValue(saved.showIntervalsLabel, true));
       if ("showNotesLabel" in saved) setShowNotesLabel(sanitizeBoolValue(saved.showNotesLabel, false));
       if ("rootPc" in saved) setRootPc(sanitizeNumberValue(saved.rootPc, 5, 0, 11));
+      if ("harmonyMode" in saved) setHarmonyMode(sanitizeOneOf(saved.harmonyMode, ["diatonic", "functional_minor"], "diatonic"));
       if ("scaleRootLetter" in saved) setScaleRootLetter(sanitizeOneOf(saved.scaleRootLetter, LETTERS, "F"));
       if ("scaleRootAcc" in saved) setScaleRootAcc(saved.scaleRootAcc == null ? null : sanitizeOneOf(saved.scaleRootAcc, ["flat", "sharp"], null));
       if ("scaleName" in saved) setScaleName(sanitizeOneOf(normalizeScaleName(saved.scaleName), Object.keys(SCALE_PRESETS), "Mayor"));
@@ -3048,6 +3108,7 @@ export default function FretboardScalesPage() {
       if ("chordExt11" in saved) setChordExt11(sanitizeBoolValue(saved.chordExt11, false));
       if ("chordExt13" in saved) setChordExt13(sanitizeBoolValue(saved.chordExt13, false));
       if ("chordVoicingIdx" in saved) setChordVoicingIdx(sanitizeNumberValue(saved.chordVoicingIdx, 0, 0, 999));
+      if ("chordSelectedFrets" in saved) setChordSelectedFrets(typeof saved.chordSelectedFrets === "string" || saved.chordSelectedFrets == null ? saved.chordSelectedFrets : null);
       if ("chordMaxDist" in saved) setChordMaxDist(sanitizeOneOf(Number(saved.chordMaxDist), [4, 5, 6], 4));
 
       if ("nearWindowStart" in saved) setNearWindowStart(sanitizeNumberValue(saved.nearWindowStart, 2, 0, 24));
@@ -3725,18 +3786,32 @@ export default function FretboardScalesPage() {
   useEffect(() => {
     if (!chordVoicings.length) {
       if (chordVoicingIdx !== 0) setChordVoicingIdx(0);
+      if (chordSelectedFrets != null) setChordSelectedFrets(null);
       return;
     }
+
+    const keepIdx = chordSelectedFrets ? chordVoicings.findIndex((v) => v.frets === chordSelectedFrets) : -1;
+    if (keepIdx >= 0) {
+      if (keepIdx !== chordVoicingIdx) {
+        skipChordVoicingRefSyncRef.current = true;
+        setChordVoicingIdx(keepIdx);
+      }
+      return;
+    }
+
     const ref = lastChordVoicingRef.current;
     const idx = nearestVoicingIndex(ref, chordVoicings);
+    const nextFrets = chordVoicings[idx]?.frets ?? null;
     if (idx !== chordVoicingIdx) {
       skipChordVoicingRefSyncRef.current = true;
       setChordVoicingIdx(idx);
     }
-  }, [chordVoicingsSig]);
+    if (nextFrets !== chordSelectedFrets) setChordSelectedFrets(nextFrets);
+  }, [chordVoicingsSig, chordSelectedFrets]);
 
   useEffect(() => {
     const current = chordVoicings[chordVoicingIdx] || chordVoicings[0] || null;
+    if (current?.frets !== (chordSelectedFrets ?? null)) setChordSelectedFrets(current?.frets ?? null);
     if (skipChordVoicingRefSyncRef.current) {
       skipChordVoicingRefSyncRef.current = false;
       return;
@@ -4109,13 +4184,8 @@ export default function FretboardScalesPage() {
 
         let nextFrets = slot.selFrets ?? null;
 
-        if (idx === 0) {
-          const keepCurrent = !!slot.selFrets && options.some((v) => v.frets === slot.selFrets);
-          if (!keepCurrent) {
-            const ref = lastNearVoicingsRef.current[idx] || null;
-            nextFrets = options[nearestVoicingIndex(ref, options)]?.frets ?? options[0]?.frets ?? null;
-          }
-        } else {
+        const keepCurrent = !!slot.selFrets && options.some((v) => v.frets === slot.selFrets);
+        if (!keepCurrent) {
           const ref = lastNearVoicingsRef.current[idx] || null;
           nextFrets = options[nearestVoicingIndex(ref, options)]?.frets ?? options[0]?.frets ?? null;
         }
@@ -4147,8 +4217,8 @@ export default function FretboardScalesPage() {
   const spelledScaleNotes = useMemo(() => spellScaleNotes({ rootPc, scaleIntervals, preferSharps }), [rootPc, scaleIntervals, preferSharps]);
   const spelledExtraNotes = useMemo(() => spellScaleNotes({ rootPc, scaleIntervals: extraIntervals, preferSharps }), [rootPc, extraIntervals, preferSharps]);
   const scaleTetradHarmony = useMemo(
-    () => buildScaleTetradHarmonization({ rootPc, scaleIntervals, spelledScaleNotes, preferSharps }),
-    [rootPc, scaleIntervals, spelledScaleNotes, preferSharps]
+    () => buildScaleTetradHarmonization({ rootPc, scaleName, harmonyMode, scaleIntervals, spelledScaleNotes, preferSharps }),
+    [rootPc, scaleName, harmonyMode, scaleIntervals, spelledScaleNotes, preferSharps]
   );
   const scaleTetradDegreesText = useMemo(
     () => scaleTetradHarmony.map((x) => x.degreeName).join(" · "),
@@ -4165,7 +4235,7 @@ export default function FretboardScalesPage() {
     const withSeventh = base.structure === "tetrad" || !!base.ext7;
 
     const degrees = scaleIntervals.map((interval, i) => {
-      const built = buildScaleDegreeChord({ scaleIntervals, degreeIndex: i, withSeventh });
+      const built = buildHarmonyDegreeChord({ scaleName, harmonyMode, scaleIntervals, degreeIndex: i, withSeventh });
       const noteName = spelledScaleNotes[i] || pcToName(mod12(rootPc + interval), preferSharps);
       const chordRootPc2 = mod12(rootPc + interval);
 
@@ -4212,18 +4282,20 @@ export default function FretboardScalesPage() {
     scaleIntervals,
     spelledScaleNotes,
     rootPc,
+    harmonyMode,
     preferSharps,
     scaleName,
   ]);
 
   useEffect(() => {
+    if (!storageHydrated) return;
     if (!nearAutoScaleSync) return;
     setNearSlots((prev) => {
       if (!prev?.length) return prev;
 
       const s0 = prev[0] || {};
       const withSeventh = s0.structure === "tetrad" || !!s0.ext7;
-      const built = buildScaleDegreeChord({ scaleIntervals, degreeIndex: 0, withSeventh });
+      const built = buildHarmonyDegreeChord({ scaleName, harmonyMode, scaleIntervals, degreeIndex: 0, withSeventh });
       if (!built) return prev;
 
       const patch = {
@@ -4255,11 +4327,12 @@ export default function FretboardScalesPage() {
       next[0] = { ...s0, ...patch };
       return next;
     });
-  }, [nearAutoScaleSync, rootPc, scaleIntervals, preferSharps]);
+  }, [storageHydrated, nearAutoScaleSync, rootPc, scaleName, harmonyMode, scaleIntervals, preferSharps]);
 
   // Auto-propuesta: si un slot NO está activo, lo ajustamos a grados diatónicos de la escala activa.
   // Se mantienen ii / IV / V como propuesta por defecto cuando existan en la escala.
   useEffect(() => {
+    if (!storageHydrated) return;
     if (!nearAutoScaleSync) return;
     setNearSlots((prev) => {
       if (!prev?.length) return prev;
@@ -4301,7 +4374,7 @@ export default function FretboardScalesPage() {
 
       return changed ? next : prev;
     });
-  }, [nearAutoScaleSync, harmonizedScale]);
+  }, [storageHydrated, nearAutoScaleSync, harmonizedScale]);
 
 
   const spelledChordNotes = useMemo(
@@ -5401,7 +5474,18 @@ export default function FretboardScalesPage() {
 
               <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-[420px] flex-1">
-                  <div className={UI_LABEL_SM}>Armonización (cuatriadas)</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className={UI_LABEL_SM}>Armonización (cuatriadas)</div>
+                    <select
+                      className={UI_SELECT_SM + " w-44"}
+                      value={harmonyMode}
+                      onChange={(e) => setHarmonyMode(e.target.value)}
+                      title="Define si la armonización es diatónica o funcional menor (V7 en escalas menores)"
+                    >
+                      <option value="diatonic">Diatónica</option>
+                      <option value="functional_minor">Funcional menor (V7)</option>
+                    </select>
+                  </div>
                   <div className="mt-1 text-xs text-slate-600"><b>Grados:</b> {scaleTetradDegreesText}</div>
                   <div className="mt-0.5 text-xs text-slate-600"><b>Notas:</b> {scaleTetradNotesText}</div>
                 </div>
@@ -5793,7 +5877,12 @@ export default function FretboardScalesPage() {
                               type="button"
                               className={UI_BTN_SM}
                               title="Anterior"
-                              onClick={() => setChordVoicingIdx((i) => (chordVoicings.length ? (i - 1 + chordVoicings.length) % chordVoicings.length : 0))}
+                              onClick={() => {
+                                if (!chordVoicings.length) return;
+                                const nextIdx = (chordVoicingIdx - 1 + chordVoicings.length) % chordVoicings.length;
+                                setChordVoicingIdx(nextIdx);
+                                setChordSelectedFrets(chordVoicings[nextIdx]?.frets ?? null);
+                              }}
                               disabled={!chordVoicings.length}
                             >
                               <ChevronLeft className="h-4 w-4" />
@@ -5805,7 +5894,10 @@ export default function FretboardScalesPage() {
                               onChange={(e) => {
                                 const f = e.target.value;
                                 const idx = chordVoicings.findIndex((v) => v.frets === f);
-                                if (idx >= 0) setChordVoicingIdx(idx);
+                                if (idx >= 0) {
+                                  setChordVoicingIdx(idx);
+                                  setChordSelectedFrets(f);
+                                }
                               }}
                               disabled={!chordVoicings.length}
                             >
@@ -5820,7 +5912,12 @@ export default function FretboardScalesPage() {
                               type="button"
                               className={UI_BTN_SM}
                               title="Siguiente"
-                              onClick={() => setChordVoicingIdx((i) => (chordVoicings.length ? (i + 1) % chordVoicings.length : 0))}
+                              onClick={() => {
+                                if (!chordVoicings.length) return;
+                                const nextIdx = (chordVoicingIdx + 1) % chordVoicings.length;
+                                setChordVoicingIdx(nextIdx);
+                                setChordSelectedFrets(chordVoicings[nextIdx]?.frets ?? null);
+                              }}
                               disabled={!chordVoicings.length}
                             >
                               <ChevronRight className="h-4 w-4" />
