@@ -555,7 +555,8 @@ function buildHarmonyDegreeChord({ scaleName, harmonyMode, scaleIntervals, degre
       suspension: "none",
       structure: "triad",
       inversion: "root",
-      form: "closed",
+      form: "open",
+      positionForm: "open",
       ext7: false,
       ext6: false,
       ext9: false,
@@ -600,7 +601,8 @@ function buildScaleTetradHarmonization({ rootPc, scaleName, harmonyMode, scaleIn
     const fifthOffset = mod12(scaleIntervals[(i + 4) % n] - rootOffset);
     const seventhOffset = mod12(scaleIntervals[(i + 6) % n] - rootOffset);
     const suffix = functionalMinorDominant ? "7" : tetradSuffixFromOffsets(thirdOffset, fifthOffset, seventhOffset);
-    const degreeName = `${ROMAN_DEGREES[i] || `${i + 1}`}${suffix}`;
+    const degreeBase = ROMAN_DEGREES[i] || String(i + 1);
+    const degreeName = `${degreeBase}${suffix}`;
     const noteRoot = spelledScaleNotes[i] || pcToName(mod12(rootPc + rootOffset), preferSharps);
 
     return {
@@ -623,7 +625,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "1.13";
+const APP_VERSION = "1.17";
 const APP_VERSION_STAMP = "2026-03-13 08:22";
 
 function chordDbUrl(keyName, suffix) {
@@ -721,6 +723,7 @@ function buildVoicingFromFretsLH({ fretsLH, rootPc, maxFret }) {
     maxFret: maxF,
     span,
     reach,
+    pitchSpan: Math.max(...notes.map((n) => pitchAt(n.sIdx, n.fret))) - Math.min(...notes.map((n) => pitchAt(n.sIdx, n.fret))),
     relIntervals: new Set(notes.map((n) => mod12(n.pc - rootPc))),
   };
 }
@@ -1001,6 +1004,36 @@ function isDropForm(form) {
   return String(form || "").startsWith("drop");
 }
 
+function isOpenForm(form) {
+  return String(form || "") === "open";
+}
+
+function voicingPitchSpan(v) {
+  if (!v?.notes?.length) return 0;
+  const pitches = v.notes.map((n) => pitchAt(n.sIdx, n.fret));
+  return Math.max(...pitches) - Math.min(...pitches);
+}
+
+function isClosedPositionVoicing(v) {
+  return voicingPitchSpan(v) <= 12;
+}
+
+function filterVoicingsByForm(voicings, form) {
+  const list = Array.isArray(voicings) ? voicings : [];
+  if (isDropForm(form)) return list;
+  if (isOpenForm(form)) return list.filter((v) => !isClosedPositionVoicing(v));
+  return list.filter((v) => isClosedPositionVoicing(v));
+}
+
+function positionFormFromEffectiveForm(form, fallback = "closed") {
+  if (isDropForm(form)) return fallback;
+  return isOpenForm(form) ? "open" : "closed";
+}
+
+function dropFormFromEffectiveForm(form) {
+  return isDropForm(form) ? form : "none";
+}
+
 function normalizeChordFormToInversion(form) {
   return ["root", "1", "2", "3"].includes(form) ? form : "root";
 }
@@ -1246,6 +1279,7 @@ const CHORD_INVERSIONS = [
 
 const CHORD_FORMS = [
   { value: "closed", label: "Cerrado" },
+  { value: "open", label: "Abierto" },
   { value: "drop2_set1", label: "Drop 2 Set 1" },
   { value: "drop2_set2", label: "Drop 2 Set 2" },
   { value: "drop2_set3", label: "Drop 2 Set 3" },
@@ -1253,6 +1287,11 @@ const CHORD_FORMS = [
   { value: "drop3_set2", label: "Drop 3 Set 2" },
   { value: "drop24_set1", label: "Drop 2+4 Set 1" },
   { value: "drop24_set2", label: "Drop 2+4 Set 2" },
+];
+
+const DROP_FORM_OPTIONS = [
+  { value: "none", label: "—" },
+  ...CHORD_FORMS.filter((x) => isDropForm(x.value)),
 ];
 
 const DROP_FORM_STRING_SETS = {
@@ -2250,7 +2289,7 @@ function inferControlTitle(el) {
     if (labelNorm === "tono") return "Elige la nota base del acorde.";
     if (labelNorm.startsWith("calidad")) return "Elige la calidad del acorde y, si quieres, una suspensión.";
     if (labelNorm === "estructura") return "Elige si trabajas con 3, 4 o más notas.";
-    if (labelNorm === "forma") return "Elige la disposición del acorde: cerrado o drop.";
+    if (labelNorm === "forma") return "Elige la disposición del acorde: cerrado, abierto o drop.";
     if (labelNorm.startsWith("inversión")) return "Elige qué nota del acorde queda en el bajo.";
     if (labelNorm.startsWith("voicing")) return "Selecciona una digitación concreta del acorde actual.";
     if (labelNorm.startsWith("digitación en rango")) return "Selecciona una digitación dentro del rango de trastes.";
@@ -2329,6 +2368,7 @@ function sanitizeNearSlotValue(value, fallback) {
     structure: sanitizeOneOf(slot.structure, CHORD_STRUCTURES.map((s) => s.value), fallback.structure),
     inversion: sanitizeOneOf(slot.inversion, CHORD_INVERSIONS.map((x) => x.value), fallback.inversion),
     form: sanitizeOneOf(slot.form, CHORD_FORMS.map((x) => x.value), fallback.form),
+    positionForm: sanitizeOneOf(slot.positionForm, ["closed", "open"], positionFormFromEffectiveForm(slot.form, fallback.positionForm || "open")),
     ext7: sanitizeBoolValue(slot.ext7, fallback.ext7),
     ext6: sanitizeBoolValue(slot.ext6, fallback.ext6),
     ext9: sanitizeBoolValue(slot.ext9, fallback.ext9),
@@ -2686,7 +2726,8 @@ export default function FretboardScalesPage() {
   const [chordSuspension, setChordSuspension] = useState("none");
   const [chordStructure, setChordStructure] = useState("triad");
   const [chordInversion, setChordInversion] = useState("root");
-  const [chordForm, setChordForm] = useState("closed");
+  const [chordForm, setChordForm] = useState("open");
+  const [chordPositionForm, setChordPositionForm] = useState("open");
   const [chordExt7, setChordExt7] = useState(false);
   const [chordExt6, setChordExt6] = useState(false);
   const [chordExt9, setChordExt9] = useState(false);
@@ -2716,8 +2757,9 @@ export default function FretboardScalesPage() {
       ext11: chordExt11,
       ext13: chordExt13,
     })) return;
+    setChordForm(chordPositionForm || "closed");
     setChordInversion("root");
-  }, [chordForm, chordStructure, chordExt7, chordExt6, chordExt9, chordExt11, chordExt13]);
+  }, [chordForm, chordPositionForm, chordStructure, chordExt7, chordExt6, chordExt9, chordExt11, chordExt13]);
 
   // Regla (cuatriada):
   // - Por defecto incluye 7ª.
@@ -2794,7 +2836,8 @@ export default function FretboardScalesPage() {
       suspension: chordSuspension,
       structure: chordStructure,
       inversion: "root",
-      form: "closed",
+      form: "open",
+      positionForm: "open",
       ext7: false,
       ext6: false,
       ext9: false,
@@ -2813,6 +2856,7 @@ export default function FretboardScalesPage() {
       structure: "triad",
       inversion: "root",
       form: "closed",
+      positionForm: "closed",
       ext7: false,
       ext6: false,
       ext9: false,
@@ -2825,6 +2869,27 @@ export default function FretboardScalesPage() {
 
     return [base, mkEmpty(), mkEmpty(), mkEmpty()];
   });
+
+  useEffect(() => {
+    setNearSlots((prev) => {
+      let changed = false;
+      const next = prev.map((slot) => {
+        if (!slot) return slot;
+        if (!isDropForm(slot.form)) return slot;
+        if (isStrictFourNoteDropEligible({
+          structure: slot.structure,
+          ext7: slot.ext7,
+          ext6: slot.ext6,
+          ext9: slot.ext9,
+          ext11: slot.ext11,
+          ext13: slot.ext13,
+        })) return slot;
+        changed = true;
+        return { ...slot, form: slot.positionForm || "closed", inversion: "root", selFrets: null };
+      });
+      return changed ? next : prev;
+    });
+  }, [nearSlots.map((s) => `${s?.form}|${s?.structure}|${s?.ext7 ? 1 : 0}|${s?.ext6 ? 1 : 0}|${s?.ext9 ? 1 : 0}|${s?.ext11 ? 1 : 0}|${s?.ext13 ? 1 : 0}`).join(";")]);
 
   useEffect(() => {
     if (!storageHydrated) return;
@@ -2958,6 +3023,7 @@ export default function FretboardScalesPage() {
     chordStructure,
     chordInversion,
     chordForm,
+    chordPositionForm,
     chordExt7,
     chordExt6,
     chordExt9,
@@ -3007,6 +3073,7 @@ export default function FretboardScalesPage() {
     chordStructure,
     chordInversion,
     chordForm,
+    chordPositionForm,
     chordExt7,
     chordExt6,
     chordExt9,
@@ -3109,7 +3176,16 @@ export default function FretboardScalesPage() {
       if ("chordSuspension" in saved) setChordSuspension(sanitizeOneOf(saved.chordSuspension, ["none", "sus2", "sus4"], "none"));
       if ("chordStructure" in saved) setChordStructure(sanitizeOneOf(saved.chordStructure, CHORD_STRUCTURES.map((s) => s.value), "triad"));
       if ("chordInversion" in saved) setChordInversion(sanitizeOneOf(saved.chordInversion, CHORD_INVERSIONS.map((x) => x.value), "root"));
-      if ("chordForm" in saved) setChordForm(sanitizeOneOf(saved.chordForm, CHORD_FORMS.map((x) => x.value), "closed"));
+      if ("chordForm" in saved) {
+        const restoredChordForm = sanitizeOneOf(saved.chordForm, CHORD_FORMS.map((x) => x.value), "open");
+        setChordForm(restoredChordForm);
+        const restoredPosition = "chordPositionForm" in saved
+          ? sanitizeOneOf(saved.chordPositionForm, ["closed", "open"], positionFormFromEffectiveForm(restoredChordForm))
+          : positionFormFromEffectiveForm(restoredChordForm);
+        setChordPositionForm(restoredPosition);
+      } else if ("chordPositionForm" in saved) {
+        setChordPositionForm(sanitizeOneOf(saved.chordPositionForm, ["closed", "open"], "open"));
+      }
       if ("chordExt7" in saved) setChordExt7(sanitizeBoolValue(saved.chordExt7, false));
       if ("chordExt6" in saved) setChordExt6(sanitizeBoolValue(saved.chordExt6, false));
       if ("chordExt9" in saved) setChordExt9(sanitizeBoolValue(saved.chordExt9, false));
@@ -3590,14 +3666,14 @@ export default function FretboardScalesPage() {
   const chordVoicings = useMemo(() => {
     // 1) TRIADAS “reales” = 3 notas
     if (chordStructure === "triad" && !chordExt7 && !chordExt6) {
-      const tri = generateTriadVoicings({
+      const tri = filterVoicingsByForm(generateTriadVoicings({
         rootPc: chordRootPc,
         thirdOffset: chordThirdOffset,
         fifthOffset: chordFifthOffset,
         inversion: normalizeChordFormToInversion(chordInversion),
         maxFret,
         maxSpan: chordMaxDist,
-      });
+      }), chordForm);
       return tri.slice(0, 60);
     }
 
@@ -3642,7 +3718,7 @@ export default function FretboardScalesPage() {
 
       if (addOnly) {
         const addInt = chordExt13 ? 9 : chordExt11 ? 5 : chordExt9 ? 2 : 9;
-        const tet = generateTetradVoicings({
+        const tet = filterVoicingsByForm(generateTetradVoicings({
           rootPc: chordRootPc,
           thirdOffset: chordThirdOffset,
           fifthOffset: chordFifthOffset,
@@ -3650,12 +3726,12 @@ export default function FretboardScalesPage() {
           inversion: normalizeChordFormToInversion(chordInversion),
           maxFret,
           maxSpan: chordMaxDist,
-        });
+        }), chordForm);
         return tet.slice(0, 60);
       }
 
       if (seventh == null) return [];
-      const tet = generateTetradVoicings({
+      const tet = filterVoicingsByForm(generateTetradVoicings({
         rootPc: chordRootPc,
         thirdOffset: chordThirdOffset,
         fifthOffset: chordFifthOffset,
@@ -3663,7 +3739,7 @@ export default function FretboardScalesPage() {
         inversion: normalizeChordFormToInversion(chordInversion),
         maxFret,
         maxSpan: chordMaxDist,
-      });
+      }), chordForm);
       return tet.slice(0, 60);
     }
 
@@ -3943,14 +4019,14 @@ export default function FretboardScalesPage() {
     const inRange = (v) => v && v.notes.every((n) => n.fret === 0 || (n.fret >= nearFrom && n.fret <= nearTo));
 
     if (slot.structure === "triad" && !slot.ext7 && !slot.ext6) {
-      const tri = generateTriadVoicings({
+      const tri = filterVoicingsByForm(generateTriadVoicings({
         rootPc: rootPc2,
         thirdOffset: third,
         fifthOffset: fifth,
         inversion: normalizeChordFormToInversion(slot.inversion),
         maxFret: nearTo,
         maxSpan: slotMaxDist,
-      }).filter(inRange);
+      }), slot.form).filter(inRange);
       return { voicings: tri, err: tri.length ? null : "No encontré triadas en ese rango" };
     }
 
@@ -3993,7 +4069,7 @@ export default function FretboardScalesPage() {
 
       if (addOnly) {
         const addInt = slot.ext13 ? 9 : slot.ext11 ? 5 : slot.ext9 ? 2 : 9;
-        const tet = generateTetradVoicings({
+        const tet = filterVoicingsByForm(generateTetradVoicings({
           rootPc: rootPc2,
           thirdOffset: third,
           fifthOffset: fifth,
@@ -4001,12 +4077,12 @@ export default function FretboardScalesPage() {
           inversion: normalizeChordFormToInversion(slot.inversion),
           maxFret: nearTo,
           maxSpan: slotMaxDist,
-        }).filter(inRange);
+        }), slot.form).filter(inRange);
         return { voicings: tet, err: tet.length ? null : "No encontré add* en ese rango" };
       }
 
       if (seventh == null) return { voicings: [], err: "No hay 7ª para esta combinación" };
-      const tet = generateTetradVoicings({
+      const tet = filterVoicingsByForm(generateTetradVoicings({
         rootPc: rootPc2,
         thirdOffset: third,
         fifthOffset: fifth,
@@ -4014,7 +4090,7 @@ export default function FretboardScalesPage() {
         inversion: normalizeChordFormToInversion(slot.inversion),
         maxFret: nearTo,
         maxSpan: slotMaxDist,
-      }).filter(inRange);
+      }), slot.form).filter(inRange);
       return { voicings: tet, err: tet.length ? null : "No encontré cuatriadas en ese rango" };
     }
 
@@ -4352,7 +4428,8 @@ export default function FretboardScalesPage() {
         suspension: "none",
         structure: built.structure,
         inversion: "root",
-        form: "closed",
+        form: "open",
+        positionForm: "open",
         ext7: built.ext7,
         ext6: false,
         ext9: false,
@@ -4400,7 +4477,8 @@ export default function FretboardScalesPage() {
           suspension: degree.suspension,
           structure: degree.structure,
           inversion: "root",
-          form: "closed",
+          form: "open",
+          positionForm: "open",
           ext7: degree.ext7,
           ext6: false,
           ext9: false,
@@ -5302,9 +5380,6 @@ export default function FretboardScalesPage() {
       <div ref={appRootRef} className={wrap}>
         <header className="mb-3">
           <h1 className="text-xl font-semibold">Mástil interactivo: escalas, patrones, rutas y acordes</h1>
-          <p className="text-sm text-slate-600">
-            Patrones: <b>5 boxes</b> (pentatónicas), <b>7 3NPS</b> (7 notas) y <b>CAGED</b>. Ruta: sigue la escala en orden y se restringe a patrones.
-          </p>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold text-slate-700">Presets rápidos</span>
@@ -5578,7 +5653,7 @@ export default function FretboardScalesPage() {
             {/* MÁSTILES */}
             <div className="space-y-3">
               {showBoards.scale ? <Fretboard title="Escala" subtitle="Escala + (opcional) extras. Resalta raíz/3ª/5ª." mode="scale" /> : null}
-              {showBoards.patterns ? <Fretboard title="Patrones" subtitle="Fondo indica patrón." mode="patterns" /> : null}
+              {showBoards.patterns ? <Fretboard title="Patrones" subtitle="Patrones: 5 boxes (pentatónicas), 7 3NPS (7 notas) y CAGED. Ruta: sigue la escala en orden y se restringe a patrones." mode="patterns" /> : null}
               {showBoards.route ? (
                 <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
                   <div className="flex flex-wrap items-end justify-between gap-2">
@@ -5785,7 +5860,7 @@ export default function FretboardScalesPage() {
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Estructura</label>
                           <select
-                            className={UI_SELECT_SM}
+                            className={UI_SELECT_SM + " mt-1"}
                             value={chordStructure}
                             onChange={(e) => {
                               const val = e.target.value;
@@ -5809,29 +5884,54 @@ export default function FretboardScalesPage() {
 
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Forma</label>
-                          <select className={UI_SELECT_SM} value={chordForm} onChange={(e) => setChordForm(e.target.value)}>
-                            {CHORD_FORMS.map((form) => (
-                              <option
-                                key={form.value}
-                                value={form.value}
-                                disabled={isDropForm(form.value) && !isStrictFourNoteDropEligible({
-                                  structure: chordStructure,
-                                  ext7: chordExt7,
-                                  ext6: chordExt6,
-                                  ext9: chordExt9,
-                                  ext11: chordExt11,
-                                  ext13: chordExt13,
-                                })}
-                              >
-                                {form.label}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="mt-1 grid grid-cols-2 gap-1.5">
+                            <select
+                              className={UI_SELECT_SM}
+                              value={chordPositionForm}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setChordPositionForm(v);
+                                if (!isDropForm(chordForm)) setChordForm(v);
+                              }}
+                              disabled={chordStructure === "chord"}
+                              title="Posición del voicing: cerrado o abierto"
+                            >
+                              <option value="closed">Cerrado</option>
+                              <option value="open">Abierto</option>
+                            </select>
+                            <select
+                              className={UI_SELECT_SM}
+                              value={dropFormFromEffectiveForm(chordForm)}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setChordForm(v === "none" ? chordPositionForm : v);
+                              }}
+                              disabled={chordStructure === "chord"}
+                              title="Tipo de drop. Usa — para voicing libre"
+                            >
+                              {DROP_FORM_OPTIONS.map((form) => (
+                                <option
+                                  key={form.value}
+                                  value={form.value}
+                                  disabled={form.value !== "none" && !isStrictFourNoteDropEligible({
+                                    structure: chordStructure,
+                                    ext7: chordExt7,
+                                    ext6: chordExt6,
+                                    ext9: chordExt9,
+                                    ext11: chordExt11,
+                                    ext13: chordExt13,
+                                  })}
+                                >
+                                  {form.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
 
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Inversión</label>
-                          <select className={UI_SELECT_SM} value={chordInversion} onChange={(e) => setChordInversion(e.target.value)}>
+                          <select className={UI_SELECT_SM + " mt-1"} value={chordInversion} onChange={(e) => setChordInversion(e.target.value)}>
                             {CHORD_INVERSIONS.map((inv) => (
                               <option key={inv.value} value={inv.value} disabled={chordStructure === "triad" && inv.value === "3"}>
                                 {inv.label}
@@ -6173,7 +6273,7 @@ export default function FretboardScalesPage() {
                               <div className="min-w-0">
                                 <label className={UI_LABEL_SM}>Estructura</label>
                                 <select
-                                  className={UI_SELECT_SM}
+                                  className={UI_SELECT_SM + " mt-1"}
                                   value={slot.structure}
                                   onChange={(e) => {
                                     const val = e.target.value;
@@ -6196,29 +6296,60 @@ export default function FretboardScalesPage() {
 
                               <div className="min-w-0">
                                 <label className={UI_LABEL_SM}>Forma</label>
-                                <select className={UI_SELECT_SM} value={slot.form || "closed"} onChange={(e) => updateNearSlot(idx, { form: e.target.value, selFrets: null })} disabled={disableAll}>
-                                  {CHORD_FORMS.map((form) => (
-                                    <option
-                                      key={form.value}
-                                      value={form.value}
-                                      disabled={isDropForm(form.value) && !isStrictFourNoteDropEligible({
-                                        structure: slot.structure,
-                                        ext7: slot.ext7,
-                                        ext6: slot.ext6,
-                                        ext9: slot.ext9,
-                                        ext11: slot.ext11,
-                                        ext13: slot.ext13,
-                                      })}
-                                    >
-                                      {form.label}
-                                    </option>
-                                  ))}
-                                </select>
+                                <div className="mt-1 grid grid-cols-2 gap-1.5">
+                                  <select
+                                    className={UI_SELECT_SM}
+                                    value={slot.positionForm || positionFormFromEffectiveForm(slot.form)}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      updateNearSlot(idx, {
+                                        positionForm: v,
+                                        form: isDropForm(slot.form) ? slot.form : v,
+                                        selFrets: null,
+                                      });
+                                    }}
+                                    disabled={disableAll || slot.structure === "chord"}
+                                    title="Posición del voicing: cerrado o abierto"
+                                  >
+                                    <option value="closed">Cerrado</option>
+                                    <option value="open">Abierto</option>
+                                  </select>
+                                  <select
+                                    className={UI_SELECT_SM}
+                                    value={dropFormFromEffectiveForm(slot.form)}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      updateNearSlot(idx, {
+                                        form: v === "none" ? (slot.positionForm || "closed") : v,
+                                        selFrets: null,
+                                      });
+                                    }}
+                                    disabled={disableAll || slot.structure === "chord"}
+                                    title="Tipo de drop. Usa — para voicing libre"
+                                  >
+                                    {DROP_FORM_OPTIONS.map((form) => (
+                                      <option
+                                        key={form.value}
+                                        value={form.value}
+                                        disabled={form.value !== "none" && !isStrictFourNoteDropEligible({
+                                          structure: slot.structure,
+                                          ext7: slot.ext7,
+                                          ext6: slot.ext6,
+                                          ext9: slot.ext9,
+                                          ext11: slot.ext11,
+                                          ext13: slot.ext13,
+                                        })}
+                                      >
+                                        {form.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
                               </div>
 
                               <div className="min-w-0">
                                 <label className={UI_LABEL_SM}>Inversión</label>
-                                <select className={UI_SELECT_SM} value={slot.inversion} onChange={(e) => updateNearSlot(idx, { inversion: e.target.value, selFrets: null })} disabled={disableAll}>
+                                <select className={UI_SELECT_SM + " mt-1"} value={slot.inversion} onChange={(e) => updateNearSlot(idx, { inversion: e.target.value, selFrets: null })} disabled={disableAll}>
                                   {CHORD_INVERSIONS.map((inv) => (
                                     <option key={inv.value} value={inv.value} disabled={slot.structure === "triad" && inv.value === "3"}>
                                       {inv.label}
