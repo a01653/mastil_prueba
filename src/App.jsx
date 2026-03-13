@@ -623,8 +623,8 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "1.7";
-const APP_VERSION_STAMP = "2026-03-13 07:20";
+const APP_VERSION = "1.8";
+const APP_VERSION_STAMP = "2026-03-13 07:36";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -3786,7 +3786,6 @@ export default function FretboardScalesPage() {
   useEffect(() => {
     if (!chordVoicings.length) {
       if (chordVoicingIdx !== 0) setChordVoicingIdx(0);
-      if (chordSelectedFrets != null) setChordSelectedFrets(null);
       return;
     }
 
@@ -4174,11 +4173,6 @@ export default function FretboardScalesPage() {
 
         const options = nearComputed.ranked[idx]?.ranked || [];
         if (!options.length) {
-          if (slot.selFrets != null) {
-            changed = true;
-            skipNearVoicingRefSyncRef.current[idx] = true;
-            return { ...slot, selFrets: null };
-          }
           return slot;
         }
 
@@ -4311,7 +4305,6 @@ export default function FretboardScalesPage() {
         ext11: false,
         ext13: false,
         spellPreferSharps: preferSharps,
-        selFrets: null,
       };
 
       let changed = false;
@@ -4360,7 +4353,6 @@ export default function FretboardScalesPage() {
           ext11: false,
           ext13: false,
           spellPreferSharps: degree.spellPreferSharps,
-          selFrets: null,
         };
 
         for (const k of Object.keys(patch)) {
@@ -5890,7 +5882,7 @@ export default function FretboardScalesPage() {
 
                             <select
                               className={UI_SELECT_SM + " min-w-0 flex-1 max-w-[152px]"}
-                              value={chordVoicings[chordVoicingIdx]?.frets || ""}
+                              value={chordSelectedFrets || chordVoicings[chordVoicingIdx]?.frets || ""}
                               onChange={(e) => {
                                 const f = e.target.value;
                                 const idx = chordVoicings.findIndex((v) => v.frets === f);
