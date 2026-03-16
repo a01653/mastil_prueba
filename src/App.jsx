@@ -845,7 +845,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "1.49";
+const APP_VERSION = "1.50";
 const APP_VERSION_STAMP = "2026-03-13 08:22";
 
 function chordDbUrl(keyName, suffix) {
@@ -1671,6 +1671,32 @@ function isThirdDegreeLabel(label) {
   return s === "3" || s === "b3" || s === "#3";
 }
 
+function isFifthDegreeLabel(label) {
+  const s = String(label || "").toLowerCase();
+  return s.includes("5");
+}
+
+function isSeventhDegreeLabel(label) {
+  const s = String(label || "").toLowerCase();
+  return s.includes("7");
+}
+
+function allowMissingThirdCandidate(candidate) {
+  if (!candidate) return false;
+  if (candidate.missingLabels.length !== 1) return false;
+  if (!isThirdDegreeLabel(candidate.missingLabels[0])) return false;
+  if (candidate.externalBassInterval != null) return false;
+
+  const visible = candidate.formula.intervals
+    .map((intv, idx) => candidate.visibleIntervals.includes(mod12(intv)) ? String(candidate.formula.degreeLabels[idx] || "") : null)
+    .filter(Boolean);
+
+  const hasRoot = candidate.visibleIntervals.includes(0);
+  const hasFifth = visible.some((x) => isFifthDegreeLabel(x));
+  const hasSeventh = visible.some((x) => isSeventhDegreeLabel(x));
+  return hasRoot && hasFifth && hasSeventh;
+}
+
 function analyzeDetectedChordCandidates(selectedNotes) {
   const list = Array.isArray(selectedNotes) ? [...selectedNotes] : [];
   if (!list.length) return [];
@@ -1757,7 +1783,9 @@ function analyzeDetectedChordCandidates(selectedNotes) {
 
   const filtered = raw.filter((c) => {
     if (c.exact) return true;
-    if (c.missingLabels.some((x) => isThirdDegreeLabel(x))) return false;
+    if (c.missingLabels.some((x) => isThirdDegreeLabel(x))) {
+      if (!allowMissingThirdCandidate(c)) return false;
+    }
     if (c.missingLabels.length !== 1) return true;
     const missingLabel = c.missingLabels[0];
     if (!isExtensionLikeDegreeLabel(missingLabel)) return true;
