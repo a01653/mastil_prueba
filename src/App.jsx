@@ -845,7 +845,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "1.64";
+const APP_VERSION = "1.65";
 const APP_VERSION_STAMP = "2026-03-13 08:22";
 
 function chordDbUrl(keyName, suffix) {
@@ -1681,6 +1681,18 @@ function isSeventhDegreeLabel(label) {
   return s.includes("7");
 }
 
+function isSixthDegreeLabel(label) {
+  const s = String(label || "").toLowerCase();
+  return s === "6" || s.includes("13");
+}
+
+function suffixSemanticallyContainsDegree(suffix, label) {
+  const s = String(suffix || "").toLowerCase();
+  const l = String(label || "").toLowerCase();
+  if (!s || !l) return false;
+  return s.includes(l);
+}
+
 function allowMissingThirdCandidate(candidate) {
   if (!candidate) return false;
   if (candidate.missingLabels.length !== 1) return false;
@@ -1694,7 +1706,8 @@ function allowMissingThirdCandidate(candidate) {
   const hasRoot = candidate.visibleIntervals.includes(0);
   const hasFifth = visible.some((x) => isFifthDegreeLabel(x));
   const hasSeventh = visible.some((x) => isSeventhDegreeLabel(x));
-  return hasRoot && hasFifth && hasSeventh;
+  const hasSixth = visible.some((x) => isSixthDegreeLabel(x));
+  return hasRoot && hasFifth && (hasSeventh || hasSixth);
 }
 
 function shouldFilterExternalBassSubsetCandidate(candidate, exactCandidates) {
@@ -1829,6 +1842,7 @@ function analyzeDetectedChordCandidates(selectedNotes) {
   const exactCandidates = raw.filter((c) => c.exact);
 
   const filtered = raw.filter((c) => {
+    if (c.missingLabels.some((x) => suffixSemanticallyContainsDegree(c.formula?.suffix, x))) return false;
     if (c.exact) {
       if (shouldFilterExactSubsetCandidate(c, exactCandidates)) return false;
       return true;
