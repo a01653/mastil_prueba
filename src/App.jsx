@@ -845,7 +845,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "1.54";
+const APP_VERSION = "1.64";
 const APP_VERSION_STAMP = "2026-03-13 08:22";
 
 function chordDbUrl(keyName, suffix) {
@@ -1697,6 +1697,51 @@ function allowMissingThirdCandidate(candidate) {
   return hasRoot && hasFifth && hasSeventh;
 }
 
+function shouldFilterExternalBassSubsetCandidate(candidate, exactCandidates) {
+  if (!candidate || candidate.externalBassInterval == null) return false;
+  const wanted = new Set([...candidate.visibleIntervals, mod12(candidate.externalBassInterval)].map(mod12));
+
+  return exactCandidates.some((exact) => {
+    if (!exact?.exact) return false;
+    if (exact.rootPc !== candidate.rootPc) return false;
+    if (exact.bassPc !== candidate.bassPc) return false;
+    const exactInts = new Set((exact.visibleIntervals || []).map(mod12));
+    for (const intv of wanted) {
+      if (!exactInts.has(intv)) return false;
+    }
+    return true;
+  });
+}
+
+function candidateHeardIntervalSignature(candidate) {
+  if (!candidate) return "";
+  const ints = [...(candidate.visibleIntervals || [])];
+  if (candidate.externalBassInterval != null) ints.push(mod12(candidate.externalBassInterval));
+  return Array.from(new Set(ints.map(mod12))).sort((a, b) => a - b).join(",");
+}
+
+function shouldFilterExactSubsetCandidate(candidate, exactCandidates) {
+  if (!candidate?.exact) return false;
+  const ownSig = candidateHeardIntervalSignature(candidate);
+  if (!ownSig) return false;
+
+  return exactCandidates.some((other) => {
+    if (!other?.exact) return false;
+    if (other === candidate) return false;
+    if (other.rootPc !== candidate.rootPc) return false;
+    if (other.bassPc !== candidate.bassPc) return false;
+    if (candidateHeardIntervalSignature(other) !== ownSig) return false;
+
+    const ownCount = (candidate.formula?.intervals || []).length;
+    const otherCount = (other.formula?.intervals || []).length;
+    if (otherCount !== ownCount) return otherCount > ownCount;
+
+    const ownMissing = (candidate.missingLabels || []).length;
+    const otherMissing = (other.missingLabels || []).length;
+    return otherMissing < ownMissing;
+  });
+}
+
 function analyzeDetectedChordCandidates(selectedNotes) {
   const list = Array.isArray(selectedNotes) ? [...selectedNotes] : [];
   if (!list.length) return [];
@@ -1781,8 +1826,14 @@ function analyzeDetectedChordCandidates(selectedNotes) {
       .map((c) => `${c.rootPc}|${c.bassPc}|${c.visibleIntervals.slice().sort((a, b) => a - b).join(",")}`)
   );
 
+  const exactCandidates = raw.filter((c) => c.exact);
+
   const filtered = raw.filter((c) => {
-    if (c.exact) return true;
+    if (c.exact) {
+      if (shouldFilterExactSubsetCandidate(c, exactCandidates)) return false;
+      return true;
+    }
+    if (shouldFilterExternalBassSubsetCandidate(c, exactCandidates)) return false;
     if (c.missingLabels.some((x) => isThirdDegreeLabel(x))) {
       if (!allowMissingThirdCandidate(c)) return false;
     }
@@ -2308,6 +2359,8 @@ function rgba(hex, a) {
   if (!rgb) return `rgba(0,0,0,${a})`;
   return `rgba(${rgb.r},${rgb.g},${rgb.b},${a})`;
 }
+
+const FRET_CELL_BG = "rgba(248, 250, 252, 0.72)";
 
 function isDark(hex) {
   const rgb = hexToRgb(hex);
@@ -5573,7 +5626,7 @@ export default function FretboardScalesPage() {
   function HoverCellNote({ sIdx, fret, visible }) {
     if (!visible) return null;
     return (
-      <div className="pointer-events-none absolute inset-0 z-[12] hidden items-center justify-center text-[10px] font-semibold text-slate-500 group-hover:flex">
+      <div className="pointer-events-none absolute inset-0 z-[6] hidden items-center justify-center text-[10px] font-semibold text-slate-500 group-hover:flex">
         {hoverCellNoteText(sIdx, fret)}
       </div>
     );
@@ -5923,13 +5976,13 @@ export default function FretboardScalesPage() {
                 return (
                   <div
                     key={`${sIdx}-${fret}`}
-                    className={`group relative flex h-8 overflow-visible items-center justify-center rounded-lg border ${fret === 0 ? "border-slate-300" : "border-slate-200"}`}
-                    style={{ backgroundColor: "#f8fafc" }}
+                    className={`group relative isolate flex h-8 overflow-visible items-center justify-center rounded-lg border ${fret === 0 ? "border-slate-300" : "border-slate-200"} ${item ? "z-[4]" : "z-0"}`}
+                    style={{ backgroundColor: FRET_CELL_BG }}
                   >
                     <HoverCellNote sIdx={sIdx} fret={fret} visible={!item} />
                     {hasInlayCell(fret, sIdx) ? (
-                      <div className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2" style={{ bottom: "-10px" }}>
-                        <div className="h-4 w-4 rounded-full bg-slate-300 opacity-95" />
+                      <div className="pointer-events-none absolute left-1/2 z-0 -translate-x-1/2 -translate-y-1/2" style={{ top: "78%" }}>
+                        <div className="h-4 w-4 rounded-full bg-slate-300 opacity-80" />
                       </div>
                     ) : null}
                     {item ? <ChordCircle pc={item.pc} role={chordRoleOfPc(item.pc)} fret={fret} sIdx={sIdx} isBass={item.isBass} /> : null}
@@ -6046,12 +6099,12 @@ export default function FretboardScalesPage() {
                     key={`${sIdx}-${fret}`}
                     type="button"
                     onClick={() => toggleChordDetectCell(sIdx, fret)}
-                    className={`group relative flex h-8 overflow-visible items-center justify-center rounded-lg border ${fret === 0 ? "border-slate-300" : "border-slate-200"} bg-slate-50 hover:ring-2 hover:ring-slate-300`}
+                    className={`group relative isolate flex h-8 overflow-visible items-center justify-center rounded-lg border ${fret === 0 ? "border-slate-300" : "border-slate-200"} ${item ? "z-[4]" : "z-0"} bg-slate-50 hover:ring-2 hover:ring-slate-300`}
                   >
                     <HoverCellNote sIdx={sIdx} fret={fret} visible={!item} />
                     {hasInlayCell(fret, sIdx) ? (
-                      <div className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2" style={{ bottom: "-10px" }}>
-                        <div className="h-4 w-4 rounded-full bg-slate-300 opacity-95" />
+                      <div className="pointer-events-none absolute left-1/2 z-0 -translate-x-1/2 -translate-y-1/2" style={{ top: "78%" }}>
+                        <div className="h-4 w-4 rounded-full bg-slate-300 opacity-80" />
                       </div>
                     ) : null}
                     {item ? <ChordInvestigationCircle pc={item.pc} fret={fret} sIdx={sIdx} candidate={chordDetectSelectedCandidate} isBass={item.isBass} /> : (fret === 0 && !selectedStrings.has(sIdx) ? <span className="text-xs font-semibold text-slate-400">X</span> : null)}
@@ -6116,8 +6169,8 @@ export default function FretboardScalesPage() {
   function calibratedClusterPos(n, idx) {
     if (n === 2) {
       const p = [
-        { x: 15, y: 16 },
-        { x: 56, y: 16 },
+        { x: 19, y: 16 },
+        { x: 52, y: 16 },
       ][idx];
       return p ? { left: `${p.x}px`, top: `${p.y}px`, transform: "translate(-50%, -50%)" } : null;
     }
@@ -6167,15 +6220,19 @@ export default function FretboardScalesPage() {
     return (
       <div
         className={`relative z-20 inline-flex items-center justify-center rounded-full font-bold ${sizeClass}`}
-        style={{
-          backgroundColor: chordBg,
-          color: dark ? "#fff" : "#0f172a",
-          border: `2px solid ${ring}`,
-          boxSizing: "border-box",
-        }}
         title={`${slotLabelForPc(slot, pc)} · acorde ${slotIdx + 1}`}
       >
-        {slotLabelForPc(slot, pc)}
+        <span
+          className="absolute inset-0 z-[1] rounded-full"
+          style={{
+            backgroundColor: chordBg,
+            border: `2px solid ${ring}`,
+            boxSizing: "border-box",
+          }}
+        />
+        <span className="relative z-[2]" style={{ color: dark ? "#fff" : "#0f172a" }}>
+          {slotLabelForPc(slot, pc)}
+        </span>
       </div>
     );
   }
@@ -6281,24 +6338,24 @@ export default function FretboardScalesPage() {
                   return (
                     <div
                       key={`${sIdx}-${fret}`}
-                      className={`group relative flex h-8 overflow-visible items-center justify-center rounded-lg border ${fret === 0 ? "border-slate-300" : "border-slate-200"}`}
-                      style={{ backgroundColor: "#f8fafc" }}
+                      className={`group relative isolate flex h-8 overflow-visible items-center justify-center rounded-lg border ${fret === 0 ? "border-slate-300" : "border-slate-200"} ${items.length ? "z-[4]" : "z-0"}`}
+                      style={{ backgroundColor: FRET_CELL_BG }}
                     >
                       <HoverCellNote sIdx={sIdx} fret={fret} visible={!items.length} />
                       {hasInlayCell(fret, sIdx) ? (
-                        <div className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2" style={{ bottom: "-10px" }}>
-                          <div className="h-4 w-4 rounded-full bg-slate-300 opacity-95" />
-                        </div>
-                      ) : null}
+                      <div className="pointer-events-none absolute left-1/2 z-0 -translate-x-1/2 -translate-y-1/2" style={{ top: "78%" }}>
+                        <div className="h-4 w-4 rounded-full bg-slate-300 opacity-80" />
+                      </div>
+                    ) : null}
                       {fret >= nearFrom && fret <= nearTo ? (
-                        <div className="pointer-events-none absolute inset-0 z-[2] rounded-lg" style={{ backgroundColor: "rgba(15, 23, 42, 0.05)" }} />
+                        <div className="pointer-events-none absolute inset-0 z-[2] rounded-lg" style={{ backgroundColor: "rgba(15, 23, 42, 0.04)" }} />
                       ) : null}
                       {items.length === 1 ? (
-                        <div className="pointer-events-none">
+                        <div className="pointer-events-none relative z-[5]">
                           <Mini size="m" slotIdx={items[0].slotIdx} pc={items[0].pc} role={items[0].role} fret={fret} sIdx={sIdx} />
                         </div>
                       ) : items.length ? (
-                        <div className="absolute inset-0 pointer-events-none">
+                        <div className="absolute inset-0 z-[5] pointer-events-none">
                           {items
                             .slice()
                             .sort((a, b) => a.slotIdx - b.slotIdx)
@@ -6492,14 +6549,14 @@ export default function FretboardScalesPage() {
                           setRoutePickNext("start");
                         }
                       }}
-                      className={`group relative flex h-8 overflow-visible items-center justify-center rounded-lg border ${
+                      className={`group relative isolate flex h-8 overflow-visible items-center justify-center rounded-lg border ${
                         fret === 0 ? "border-slate-300" : "border-slate-200"
-                      } ${mode === "route" && inScale ? "cursor-pointer hover:ring-2 hover:ring-slate-300" : ""}`}
-                      style={{ backgroundColor: "#f8fafc", ...bgPat, ...bgRoute }}
+                      } ${shouldRender && displayRole ? "z-[4]" : "z-0"} ${mode === "route" && inScale ? "cursor-pointer hover:ring-2 hover:ring-slate-300" : ""}`}
+                      style={{ backgroundColor: FRET_CELL_BG, ...bgPat, ...bgRoute }}
                     >
                       {hasInlayCell(fret, sIdx) ? (
                         <div
-                          className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2"
+                          className="pointer-events-none absolute left-1/2 z-0 -translate-x-1/2"
                           style={{ bottom: "-10px" }}
                         >
                           <div className="h-4 w-4 rounded-full bg-slate-300 opacity-95" />
