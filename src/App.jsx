@@ -845,7 +845,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "1.67";
+const APP_VERSION = "1.68";
 const APP_VERSION_STAMP = "2026-03-13 08:22";
 
 function chordDbUrl(keyName, suffix) {
@@ -7229,7 +7229,7 @@ export default function FretboardScalesPage() {
 
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Calidad / Sus</label>
-                          <div className="mt-1 grid grid-cols-2 gap-1.5">
+                          <div className="mt-1 grid gap-1.5" style={{ gridTemplateColumns: "minmax(0,1.9fr) minmax(0,1fr)" }}>
                             <select className={UI_SELECT_SM} value={chordQuality} onChange={(e) => setChordQuality(e.target.value)}>
                               {CHORD_QUALITIES.map((q) => (
                                 <option key={q.value} value={q.value}
@@ -7287,7 +7287,7 @@ export default function FretboardScalesPage() {
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Forma</label>
                           {chordEnginePlan.ui.usesManualForm ? (
-                            <div className="mt-1 grid grid-cols-2 gap-1.5">
+                            <div className="mt-1 grid gap-1.5" style={{ gridTemplateColumns: "minmax(0,0.95fr) minmax(0,1.45fr)" }}>
                               <select
                                 className={UI_SELECT_SM}
                                 value={chordPositionForm}
@@ -7689,7 +7689,7 @@ export default function FretboardScalesPage() {
 
                               <div className="min-w-0">
                                 <label className={UI_LABEL_SM}>Calidad / Sus</label>
-                                <div className="mt-1 grid grid-cols-2 gap-1.5">
+                                <div className="mt-1 grid gap-1.5" style={{ gridTemplateColumns: "minmax(0,1.9fr) minmax(0,1fr)" }}>
                                   <select className={UI_SELECT_SM} value={slot.quality} onChange={(e) => updateNearSlot(idx, { quality: e.target.value, selFrets: null })} disabled={disableAll}>
                                     {CHORD_QUALITIES.map((q) => (
                                       <option key={q.value} value={q.value} disabled={(q.value === "hdim" && slot.structure === "triad" && !slot.ext7) || (q.value === "dom" && slot.structure === "triad" && !slot.ext7)}>{q.label}</option>
@@ -7740,7 +7740,7 @@ export default function FretboardScalesPage() {
                               <div className="min-w-0">
                                 <label className={UI_LABEL_SM}>Forma</label>
                                 {slotUi.usesManualForm ? (
-                                  <div className="mt-1 grid grid-cols-2 gap-1.5">
+                                  <div className="mt-1 grid gap-1.5" style={{ gridTemplateColumns: "minmax(0,0.95fr) minmax(0,1.45fr)" }}>
                                     <select
                                       className={UI_SELECT_SM}
                                       value={slot.positionForm || positionFormFromEffectiveForm(slot.form)}
