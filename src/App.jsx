@@ -845,7 +845,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "1.65";
+const APP_VERSION = "1.67";
 const APP_VERSION_STAMP = "2026-03-13 08:22";
 
 function chordDbUrl(keyName, suffix) {
@@ -3515,6 +3515,7 @@ export default function FretboardScalesPage() {
   const [storageHydrated, setStorageHydrated] = useState(false);
   const [configNotice, setConfigNotice] = useState(null);
   const [quickPresets, setQuickPresets] = useState(() => Array.from({ length: QUICK_PRESET_COUNT }, () => null));
+  const [manualOpen, setManualOpen] = useState(false);
   const [studyOpen, setStudyOpen] = useState(false);
   const [studyTarget, setStudyTarget] = useState("main");
 
@@ -6627,6 +6628,124 @@ export default function FretboardScalesPage() {
     );
   }
 
+  function ManualOverlay() {
+    if (!manualOpen) return null;
+
+    return (
+      <div className="fixed inset-0 z-[120] flex items-start justify-center bg-slate-900/45 p-4">
+        <div className="mt-8 max-h-[85vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl ring-1 ring-slate-200">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <div className="text-lg font-semibold text-slate-900">Manual de uso</div>
+              <div className="text-sm text-slate-600">Qué hace la página y cómo empezar sin conocerla.</div>
+            </div>
+            <button type="button" className={UI_BTN_SM + " w-auto px-3"} onClick={() => setManualOpen(false)}>
+              Cerrar
+            </button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-800">Qué hace</div>
+              <div className="mt-2 text-xs leading-5 text-slate-600">
+                Esta página muestra escalas, patrones, rutas sobre el mástil y acordes con digitaciones reales.
+                Sirve para estudiar dónde están las notas, qué intervalos forman una escala, qué patrones encajan y qué acordes puedes tocar o investigar.
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-800">Flujo rápido</div>
+              <div className="mt-2 space-y-1 text-xs text-slate-600">
+                <div>1. Elige <b>Nota raíz</b> y <b>Escala</b>.</div>
+                <div>2. Decide si quieres ver <b>Notas</b>, <b>Intervalos</b> o ambos.</div>
+                <div>3. Activa los mástiles que necesites: <b>Escala</b>, <b>Patrones</b>, <b>Ruta</b> y <b>Acordes</b>.</div>
+                <div>4. Ajusta <b>Trastes</b> para ampliar o reducir el rango visible.</div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-800">Mástil de escala</div>
+              <div className="mt-2 space-y-1 text-xs text-slate-600">
+                <div>Resalta raíz, 3ª, 5ª y resto de notas de la escala.</div>
+                <div>Puedes activar <b>Notas extra</b> para añadir tensiones o notas ajenas.</div>
+                <div><b>Ver todo</b> muestra también notas fuera de la escala.</div>
+                <div>Al pasar el ratón por una celda vacía aparece la nota del traste.</div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-800">Patrones</div>
+              <div className="mt-2 space-y-1 text-xs text-slate-600">
+                <div>Permite ver patrones posicionales sobre la escala activa.</div>
+                <div><b>Auto</b> decide el sistema adecuado según la escala.</div>
+                <div>En pentatónicas usa <b>5 boxes</b>.</div>
+                <div>En escalas de 7 notas usa <b>7 patrones 3NPS</b>.</div>
+                <div>También puedes forzar <b>CAGED</b>.</div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-800">Ruta musical</div>
+              <div className="mt-2 space-y-1 text-xs text-slate-600">
+                <div>Calcula un recorrido entre una nota inicial y una final siguiendo la escala.</div>
+                <div>Puedes escribir posiciones como <b>61</b> o elegirlas con clic en el mástil.</div>
+                <div>El modo puede ser <b>Libre</b>, <b>Posición</b>, <b>3NPS</b>, <b>Pentatónica</b> o <b>CAGED</b>.</div>
+                <div>Sirve para estudiar digitaciones y continuidad por cuerdas.</div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-800">Acorde principal</div>
+              <div className="mt-2 space-y-1 text-xs text-slate-600">
+                <div>Construye acordes a partir de tono, calidad, estructura, forma, inversión y extensiones.</div>
+                <div>La app busca voicings reales y los puedes recorrer con las flechas o el desplegable.</div>
+                <div><b>Estudiar</b> abre un análisis del acorde, el voicing y sus tensiones.</div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-800">Investigar en mástil</div>
+              <div className="mt-2 space-y-1 text-xs text-slate-600">
+                <div>Al activar <b>Investigar en mástil</b>, el cuadro de acorde queda bloqueado y seleccionas notas directamente en el mástil.</div>
+                <div>Solo puede haber una nota por cuerda. Si pulsas otra en la misma cuerda, sustituye a la anterior.</div>
+                <div>La app propone lecturas posibles del acorde y puedes copiar una a la sección de arriba.</div>
+                <div>Opcionalmente puedes activar sonido al pulsar y usar <b>Play</b> para oír la selección de grave a agudo.</div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-800">Acordes cercanos</div>
+              <div className="mt-2 space-y-1 text-xs text-slate-600">
+                <div>Permite comparar hasta 4 acordes en una misma zona del mástil.</div>
+                <div>Busca digitaciones dentro de un rango de trastes y ordena por cercanía al acorde de referencia.</div>
+                <div>Sirve para estudiar progresiones, voice leading y tonalidades posibles.</div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-800">Presets y configuración</div>
+              <div className="mt-2 space-y-1 text-xs text-slate-600">
+                <div><b>Presets rápidos</b> guardan y recuperan configuraciones habituales.</div>
+                <div><b>Exportar config</b> guarda toda la configuración en un JSON.</div>
+                <div><b>Importar config</b> recupera una configuración anterior.</div>
+                <div><b>Restablecer</b> vuelve a los valores por defecto.</div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-800">Consejos</div>
+              <div className="mt-2 space-y-1 text-xs text-slate-600">
+                <div>Empieza con una escala simple, por ejemplo mayor o pentatónica menor.</div>
+                <div>Usa primero <b>Notas</b>; cuando ubiques bien el mástil, añade <b>Intervalos</b>.</div>
+                <div>Para estudiar armonía, combina <b>Acorde principal</b>, <b>Estudiar</b> y <b>Acordes cercanos</b>.</div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const wrap = "mx-auto min-w-[1500px] max-w-[1500px] p-3";
 
   // UI compacto (especialmente para Acordes)
@@ -6678,6 +6797,9 @@ export default function FretboardScalesPage() {
             </div>
 
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              <button type="button" className={UI_BTN_SM + " w-auto px-3"} onClick={() => setManualOpen(true)}>
+                Manual
+              </button>
               <button type="button" className={UI_BTN_SM + " w-auto px-3"} onClick={exportUiConfig}>
                 Exportar config
               </button>
@@ -7858,7 +7980,8 @@ export default function FretboardScalesPage() {
             ) : null}
           </aside>
         </div>
-              <footer className="mt-6 flex items-center justify-between border-t border-slate-200 pt-3 text-xs text-slate-600">
+              <ManualOverlay />
+        <footer className="mt-6 flex items-center justify-between border-t border-slate-200 pt-3 text-xs text-slate-600">
           <span>Creado por: Jesus Quevedo Rodriguez</span>
           <span>{`ver. ${APP_VERSION}`}</span>
         </footer>
