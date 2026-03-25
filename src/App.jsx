@@ -49,8 +49,8 @@ const SCALE_PRESETS = {
   "Bebop dórica": [0, 2, 3, 4, 5, 7, 9, 10],
 
   // Otras útiles
-  "Blues (menor)": [0, 3, 5, 6, 7, 10],
-  "Blues (mayor)": [0, 2, 3, 4, 7, 9],
+  "Pentatónica menor + blue note": [0, 3, 5, 6, 7, 10],
+  "Pentatónica mayor + blue note": [0, 2, 3, 4, 7, 9],
   "Tonos enteros": [0, 2, 4, 6, 8, 10],
   "Disminuida (H-W)": [0, 1, 3, 4, 6, 7, 9, 10],
   "Disminuida (W-H)": [0, 2, 3, 5, 6, 8, 9, 11],
@@ -68,12 +68,12 @@ const SCALE_OPTION_ORDER = [
   "Mayor armónica",
   "Doble armónica (Bizantina)",
   "Pentatónica mayor",
-  "Blues (mayor)",
+  "Pentatónica mayor + blue note",
   "Menor natural",
   "Menor armónica",
   "Menor melódica (asc)",
   "Pentatónica menor",
-  "Blues (menor)",
+  "Pentatónica menor + blue note",
   "Húngara menor (Gypsy)",
   "Jónica (Ionian)",
   "Dórica (Dorian)",
@@ -114,14 +114,14 @@ const MANUAL_SCALE_TETRAD_PRESETS = {
     { scaleIdx: 3, degreeLabel: "V", suffix: "m(no5)" },
     { scaleIdx: 4, degreeLabel: "bVII", suffix: "sus2" },
   ],
-  "Blues (mayor)": [
+  "Pentatónica mayor + blue note": [
     { scaleIdx: 0, degreeLabel: "I", suffix: "maj7" },
     { scaleIdx: 1, degreeLabel: "II", suffix: "m7" },
     { scaleIdx: 3, degreeLabel: "III", suffix: "m7" },
     { scaleIdx: 4, degreeLabel: "V", suffix: "7" },
     { scaleIdx: 5, degreeLabel: "VI", suffix: "m7" },
   ],
-  "Blues (menor)": [
+  "Pentatónica menor + blue note": [
     { scaleIdx: 0, degreeLabel: "I", suffix: "m7" },
     { scaleIdx: 1, degreeLabel: "bIII", suffix: "maj7" },
     { scaleIdx: 2, degreeLabel: "IV", suffix: "m7" },
@@ -203,6 +203,90 @@ function hasInlayCell(fret, sIdx) {
   return (INLAY_SINGLE.has(fret) && sIdx === 2) || (INLAY_DOUBLE.has(fret) && (sIdx === 1 || sIdx === 3));
 }
 
+const KING_BOX_DEFAULTS = {
+  bb: { label: "B.B. King", border: "#000000" },
+  albert: { label: "Albert King", border: "#7c3aed" },
+};
+
+const BB_KING_BOX_OFFSETS = [
+  { sIdx: 2, fretOffset: 1 },
+  { sIdx: 1, fretOffset: 0 },
+  { sIdx: 1, fretOffset: 2 },
+  { sIdx: 0, fretOffset: 0 },
+  { sIdx: 0, fretOffset: 1 },
+  { sIdx: 0, fretOffset: 2 },
+];
+
+const ALBERT_KING_BOX_OFFSETS = [
+  { sIdx: 2, fretOffset: -1 },
+  { sIdx: 1, fretOffset: -2 },
+  { sIdx: 1, fretOffset: 0 },
+  { sIdx: 0, fretOffset: -2 },
+  { sIdx: 0, fretOffset: 0 },
+];
+
+function buildKingBoxInstancesFromOffsets({ rootPc, maxFret, anchorSIdx, offsets }) {
+  const roots = findRootFretsOnString({ rootPc, sIdx: anchorSIdx, maxFret });
+  const out = [];
+  const seen = new Set();
+
+  for (const rootFret of roots) {
+    const cells = new Set();
+    for (const item of offsets) {
+      const fret = rootFret + item.fretOffset;
+      if (fret < 0 || fret > maxFret) continue;
+      cells.add(`${item.sIdx}:${fret}`);
+    }
+    if (!cells.size) continue;
+    const key = Array.from(cells).sort().join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ rootFret, cells });
+  }
+
+  return out;
+}
+
+function buildBbKingBoxInstances({ rootPc, maxFret }) {
+  return buildKingBoxInstancesFromOffsets({
+    rootPc,
+    maxFret,
+    anchorSIdx: 1,
+    offsets: BB_KING_BOX_OFFSETS,
+  });
+}
+
+function buildAlbertKingBoxInstances({ rootPc, maxFret }) {
+  return buildKingBoxInstancesFromOffsets({
+    rootPc,
+    maxFret,
+    anchorSIdx: 1,
+    offsets: ALBERT_KING_BOX_OFFSETS,
+  });
+}
+
+function buildKingBoxOverlayMap({ enabled, mode, rootPc, maxFret }) {
+  const map = new Map();
+  if (!enabled) return map;
+
+  const addTag = (tag, instances) => {
+    for (const inst of instances) {
+      for (const cell of inst.cells) {
+        if (!map.has(cell)) map.set(cell, new Set());
+        map.get(cell).add(tag);
+      }
+    }
+  };
+
+  if (mode === "bb" || mode === "both") {
+    addTag("bb", buildBbKingBoxInstances({ rootPc, maxFret }));
+  }
+  if (mode === "albert" || mode === "both") {
+    addTag("albert", buildAlbertKingBoxInstances({ rootPc, maxFret }));
+  }
+
+  return map;
+}
 
 const LETTERS = ["C", "D", "E", "F", "G", "A", "B"];
 const NATURAL_PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -845,7 +929,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "1.68";
+const APP_VERSION = "1.77";
 const APP_VERSION_STAMP = "2026-03-13 08:22";
 
 function chordDbUrl(keyName, suffix) {
@@ -1258,8 +1342,161 @@ function structureUsesManualForm(structure) {
   return structure !== "chord";
 }
 
+function normalizeChordInversionSelection(value) {
+  return ["root", "1", "2", "3", "all"].includes(value) ? value : "root";
+}
+
 function normalizeChordFormToInversion(form) {
-  return ["root", "1", "2", "3"].includes(form) ? form : "root";
+  const normalized = normalizeChordInversionSelection(form);
+  return normalized === "all" ? "root" : normalized;
+}
+
+function concreteInversionsForSelection(selection, allowThirdInversion = true) {
+  const allowed = allowThirdInversion ? ["root", "1", "2", "3"] : ["root", "1", "2"];
+  const normalized = normalizeChordInversionSelection(selection);
+  if (normalized === "all") return allowed;
+  return allowed.includes(normalized) ? [normalized] : ["root"];
+}
+
+function positionFormLabel(value) {
+  return value === "open" ? "Abierto" : "Cerrado";
+}
+
+function selectedInversionLabel(value, allowThirdInversion = true) {
+  const normalized = normalizeChordInversionSelection(value);
+  if (normalized === "all") return "Todas las inversiones";
+  const list = allowThirdInversion ? CHORD_INVERSIONS : CHORD_INVERSIONS.filter((x) => x.value !== "3");
+  return list.find((x) => x.value === normalized)?.label || "Fundamental";
+}
+
+function actualVoicingShapeSummary(voicing, requestedForm, positionForm) {
+  if (voicing?._form && isDropForm(voicing._form)) {
+    return {
+      position: "Abierto",
+      drop: CHORD_FORMS.find((x) => x.value === voicing._form)?.label || "Drop",
+    };
+  }
+  if (isDropForm(requestedForm)) {
+    return {
+      position: positionFormLabel(positionFormFromEffectiveForm(requestedForm, positionForm || "closed")),
+      drop: CHORD_FORMS.find((x) => x.value === requestedForm)?.label || "Drop",
+    };
+  }
+  return {
+    position: studyVoicingFormLabel(voicing, requestedForm),
+    drop: null,
+  };
+}
+
+function buildChordHeaderSummary({ name, plan, voicing, positionForm }) {
+  if (!plan) return name || "";
+  const parts = [name || ""];
+  const layer = chordEngineLayerLabel(plan);
+  if (layer && layer !== "—") parts.push(layer);
+
+  const shape = actualVoicingShapeSummary(voicing, plan.form, positionForm);
+  if (shape.position) parts.push(shape.position);
+  if (shape.drop) parts.push(shape.drop);
+
+  parts.push(voicing ? actualInversionLabelFromVoicing(plan, voicing) : selectedInversionLabel(plan.inversion, plan.ui?.allowThirdInversion));
+  return parts.filter(Boolean).join(" - ");
+}
+
+function bassIntervalsForSelection(plan) {
+  const inversions = concreteInversionsForSelection(plan?.inversion, plan?.ui?.allowThirdInversion);
+  return Array.from(new Set(inversions.map((inv) => chordBassInterval({
+    quality: plan.quality,
+    suspension: plan.suspension,
+    structure: plan.structure,
+    inversion: inv,
+    chordIntervals: plan.intervals,
+    ext7: plan.ext7,
+    ext6: plan.ext6,
+    ext9: plan.ext9,
+    ext11: plan.ext11,
+    ext13: plan.ext13,
+  })).map(mod12)));
+}
+
+function dedupeAndSortVoicings(list) {
+  const map = new Map();
+  for (const item of list || []) {
+    if (!item?.frets) continue;
+    const prev = map.get(item.frets);
+    if (!prev) {
+      map.set(item.frets, item);
+      continue;
+    }
+    const prevCost = (prev.minFret ?? 0) * 10 + (prev.span ?? 0);
+    const nextCost = (item.minFret ?? 0) * 10 + (item.span ?? 0);
+    if (nextCost < prevCost) map.set(item.frets, item);
+  }
+  return Array.from(map.values()).sort((a, b) => (a.minFret - b.minFret) || (a.span - b.span) || (a.maxFret - b.maxFret) || a.frets.localeCompare(b.frets));
+}
+
+function buildOpenSupersetTetradVoicings({ rootCandidates, inversionChoices, plan, maxFret, maxSpan }) {
+  const seventhLike = plan.singleAdd
+    ? (plan.ext13 ? 9 : plan.ext11 ? 5 : plan.ext9 ? 2 : 9)
+    : plan.seventhOffset;
+  if (seventhLike == null) return [];
+
+  const normalOpen = rootCandidates.flatMap((rootCandidate) =>
+    inversionChoices.flatMap((inv) =>
+      filterVoicingsByForm(generateTetradVoicings({
+        rootPc: rootCandidate,
+        thirdOffset: plan.thirdOffset,
+        fifthOffset: plan.fifthOffset,
+        seventhOffset: seventhLike,
+        inversion: inv,
+        maxFret,
+        maxSpan,
+      }), "open").map((v) => normalizeGeneratedVoicingForDisplay(v, plan.rootPc, rootCandidate))
+    )
+  );
+
+  if (!plan.ui?.dropEligible) return dedupeAndSortVoicings(normalOpen);
+
+  const dropForms = CHORD_FORMS.filter((x) => isDropForm(x.value)).map((x) => x.value);
+  const dropOpen = rootCandidates.flatMap((rootCandidate) =>
+    inversionChoices.flatMap((inv) =>
+      dropForms.flatMap((form) =>
+        generateDropTetradVoicings({
+          rootPc: rootCandidate,
+          thirdOffset: plan.thirdOffset,
+          fifthOffset: plan.fifthOffset,
+          seventhOffset: plan.seventhOffset,
+          form,
+          inversion: inv,
+          maxFret,
+          maxSpan,
+        }).map((v) => normalizeGeneratedVoicingForDisplay(v, plan.rootPc, rootCandidate))
+      )
+    )
+  );
+
+  return dedupeAndSortVoicings([...normalOpen, ...dropOpen]);
+}
+
+function isSymmetricDim7Plan(plan) {
+  if (!plan) return false;
+  if (plan.quality !== "dim") return false;
+  const sig = Array.from(new Set((plan.intervals || []).map(mod12))).sort((a, b) => a - b).join(",");
+  return sig === "0,3,6,9";
+}
+
+function symmetricRootCandidatesForPlan(plan) {
+  if (!isSymmetricDim7Plan(plan)) return [plan?.rootPc ?? 0];
+  if (plan?.inversion !== "all") return [plan?.rootPc ?? 0];
+  return [0, 3, 6, 9].map((shift) => mod12((plan?.rootPc ?? 0) + shift));
+}
+
+function normalizeGeneratedVoicingForDisplay(voicing, displayRootPc, sourceRootPc) {
+  if (!voicing) return voicing;
+  return {
+    ...voicing,
+    relIntervals: new Set((voicing.notes || []).map((n) => mod12(n.pc - displayRootPc))),
+    _sourceRootPc: sourceRootPc,
+  };
 }
 
 function isStrictFourNoteDropEligible({ structure, ext7, ext6, ext9, ext11, ext13 }) {
@@ -1349,6 +1586,8 @@ function buildChordEnginePlan({
   ext11,
   ext13,
 }) {
+  const inversionSelection = normalizeChordInversionSelection(inversion);
+  const inversionSingle = inversionSelection === "all" ? "root" : inversionSelection;
   const thirdOffset = chordThirdOffsetFromUI(quality, suspension);
   const fifthOffset = chordFifthOffsetFromUI(quality, suspension);
   const seventhOffset = hasEffectiveSeventh({ structure, ext7, ext6, ext9, ext11, ext13 }) ? seventhOffsetForQuality(quality) : null;
@@ -1357,7 +1596,7 @@ function buildChordEnginePlan({
     quality,
     suspension,
     structure,
-    inversion: normalizeChordFormToInversion(inversion),
+    inversion: inversionSingle,
     chordIntervals: intervals,
     ext7,
     ext6,
@@ -1410,7 +1649,8 @@ function buildChordEnginePlan({
     quality,
     suspension,
     structure,
-    inversion: normalizeChordFormToInversion(inversion),
+    inversion: inversionSelection,
+    inversionSingle,
     form,
     ext7,
     ext6,
@@ -2099,6 +2339,7 @@ const CHORD_INVERSIONS = [
   { value: "1", label: "1ª inversión" },
   { value: "2", label: "2ª inversión" },
   { value: "3", label: "3ª inversión" },
+  { value: "all", label: "Todas" },
 ];
 
 const CHORD_FORMS = [
@@ -3531,6 +3772,8 @@ export default function FretboardScalesPage() {
   const [scaleName, setScaleName] = useState("Mayor");
   const [harmonyMode, setHarmonyMode] = useState("diatonic");
   const isPentatonicScale = scaleName === "Pentatónica mayor" || scaleName === "Pentatónica menor";
+  const isBluesScale = scaleName === "Pentatónica menor + blue note" || scaleName === "Pentatónica mayor + blue note";
+  const isKingBoxEligibleScale = isPentatonicScale || isBluesScale;
   const [maxFret, setMaxFret] = useState(15);
 
   const [showNonScale, setShowNonScale] = useState(false);
@@ -3543,6 +3786,12 @@ export default function FretboardScalesPage() {
 
   // Qué mástiles mostrar
   const [showBoards, setShowBoards] = useState({ scale: false, patterns: false, route: false, chords: true });
+  const [showKingBoxes, setShowKingBoxes] = useState(false);
+  const [kingBoxMode, setKingBoxMode] = useState("bb");
+  const [kingBoxColors, setKingBoxColors] = useState({
+    bb: KING_BOX_DEFAULTS.bb.border,
+    albert: KING_BOX_DEFAULTS.albert.border,
+  });
 
   // Modo de patrones para el 2º mástil
   const [patternsMode, setPatternsMode] = useState("auto"); // auto | boxes | nps | caged
@@ -3844,6 +4093,9 @@ export default function FretboardScalesPage() {
     accMode,
     showIntervalsLabel,
     showNotesLabel,
+    showKingBoxes,
+    kingBoxMode,
+    kingBoxColors,
     rootPc,
     harmonyMode,
     scaleRootLetter,
@@ -3894,6 +4146,9 @@ export default function FretboardScalesPage() {
     accMode,
     showIntervalsLabel,
     showNotesLabel,
+    showKingBoxes,
+    kingBoxMode,
+    kingBoxColors,
     rootPc,
     harmonyMode,
     scaleRootLetter,
@@ -3989,6 +4244,14 @@ export default function FretboardScalesPage() {
       if ("accMode" in saved) setAccMode(sanitizeOneOf(saved.accMode, ["auto", "sharps", "flats"], "auto"));
       if ("showIntervalsLabel" in saved) setShowIntervalsLabel(sanitizeBoolValue(saved.showIntervalsLabel, true));
       if ("showNotesLabel" in saved) setShowNotesLabel(sanitizeBoolValue(saved.showNotesLabel, false));
+      if ("showKingBoxes" in saved) setShowKingBoxes(sanitizeBoolValue(saved.showKingBoxes, false));
+      if ("kingBoxMode" in saved) setKingBoxMode(sanitizeOneOf(saved.kingBoxMode, ["bb", "albert", "both"], "bb"));
+      if (saved.kingBoxColors && typeof saved.kingBoxColors === "object") {
+        setKingBoxColors((prev) => ({
+          bb: sanitizeColorValue(saved.kingBoxColors.bb, prev.bb),
+          albert: sanitizeColorValue(saved.kingBoxColors.albert, prev.albert),
+        }));
+      }
       if ("rootPc" in saved) setRootPc(sanitizeNumberValue(saved.rootPc, 5, 0, 11));
       if ("harmonyMode" in saved) setHarmonyMode(sanitizeOneOf(saved.harmonyMode, ["diatonic", "functional_minor"], "diatonic"));
       if ("scaleRootLetter" in saved) setScaleRootLetter(sanitizeOneOf(saved.scaleRootLetter, LETTERS, "F"));
@@ -4513,59 +4776,84 @@ export default function FretboardScalesPage() {
 
   const chordVoicings = useMemo(() => {
     const plan = chordEnginePlan;
+    const inversionChoices = concreteInversionsForSelection(plan.inversion, plan.ui?.allowThirdInversion);
+    const selectedBassIntervals = bassIntervalsForSelection(plan);
+    const rootCandidates = symmetricRootCandidatesForPlan(plan);
 
     if (plan.generator === "triad") {
-      const tri = filterVoicingsByForm(generateTriadVoicings({
-        rootPc: plan.rootPc,
-        thirdOffset: plan.thirdOffset,
-        fifthOffset: plan.fifthOffset,
-        inversion: plan.inversion,
-        maxFret,
-        maxSpan: chordMaxDist,
-      }), plan.form);
+      const tri = dedupeAndSortVoicings(rootCandidates.flatMap((rootCandidate) =>
+        inversionChoices.flatMap((inv) =>
+          filterVoicingsByForm(generateTriadVoicings({
+            rootPc: rootCandidate,
+            thirdOffset: plan.thirdOffset,
+            fifthOffset: plan.fifthOffset,
+            inversion: inv,
+            maxFret,
+            maxSpan: chordMaxDist,
+          }), plan.form).map((v) => normalizeGeneratedVoicingForDisplay(v, plan.rootPc, rootCandidate))
+        )
+      ));
       return tri.slice(0, 60);
     }
 
     if (plan.generator === "drop") {
       if (plan.seventhOffset == null) return [];
-      const tet = generateDropTetradVoicings({
-        rootPc: plan.rootPc,
-        thirdOffset: plan.thirdOffset,
-        fifthOffset: plan.fifthOffset,
-        seventhOffset: plan.seventhOffset,
-        form: plan.form,
-        inversion: plan.inversion,
-        maxFret,
-        maxSpan: chordMaxDist,
-      });
+      const tet = dedupeAndSortVoicings(rootCandidates.flatMap((rootCandidate) =>
+        inversionChoices.flatMap((inv) =>
+          generateDropTetradVoicings({
+            rootPc: rootCandidate,
+            thirdOffset: plan.thirdOffset,
+            fifthOffset: plan.fifthOffset,
+            seventhOffset: plan.seventhOffset,
+            form: plan.form,
+            inversion: inv,
+            maxFret,
+            maxSpan: chordMaxDist,
+          }).map((v) => normalizeGeneratedVoicingForDisplay(v, plan.rootPc, rootCandidate))
+        )
+      ));
       return tet.slice(0, 60);
     }
 
     if (plan.generator === "tetrad") {
-      const seventhLike = plan.singleAdd
-        ? (plan.ext13 ? 9 : plan.ext11 ? 5 : plan.ext9 ? 2 : 9)
-        : plan.seventhOffset;
-      if (seventhLike == null) return [];
-      const tet = filterVoicingsByForm(generateTetradVoicings({
-        rootPc: plan.rootPc,
-        thirdOffset: plan.thirdOffset,
-        fifthOffset: plan.fifthOffset,
-        seventhOffset: seventhLike,
-        inversion: plan.inversion,
-        maxFret,
-        maxSpan: chordMaxDist,
-      }), plan.form);
+      const tet = plan.form === "open"
+        ? buildOpenSupersetTetradVoicings({
+            rootCandidates,
+            inversionChoices,
+            plan,
+            maxFret,
+            maxSpan: chordMaxDist,
+          })
+        : (() => {
+            const seventhLike = plan.singleAdd
+              ? (plan.ext13 ? 9 : plan.ext11 ? 5 : plan.ext9 ? 2 : 9)
+              : plan.seventhOffset;
+            if (seventhLike == null) return [];
+            return dedupeAndSortVoicings(rootCandidates.flatMap((rootCandidate) =>
+              inversionChoices.flatMap((inv) =>
+                filterVoicingsByForm(generateTetradVoicings({
+                  rootPc: rootCandidate,
+                  thirdOffset: plan.thirdOffset,
+                  fifthOffset: plan.fifthOffset,
+                  seventhOffset: seventhLike,
+                  inversion: inv,
+                  maxFret,
+                  maxSpan: chordMaxDist,
+                }), plan.form).map((v) => normalizeGeneratedVoicingForDisplay(v, plan.rootPc, rootCandidate))
+              )
+            ));
+          })();
       return tet.slice(0, 60);
     }
 
     if (plan.generator === "exact") {
-      const multi = generateExactIntervalChordVoicings({
+      const multi = dedupeAndSortVoicings(selectedBassIntervals.flatMap((bassInterval) => generateExactIntervalChordVoicings({
         rootPc: plan.rootPc,
         intervals: plan.intervals,
-        bassInterval: plan.bassInterval,
+        bassInterval,
         maxFret,
         maxSpan: chordMaxDist,
-      });
+      }).map((v) => normalizeGeneratedVoicingForDisplay(v, plan.rootPc, plan.rootPc))));
       return multi.slice(0, 60);
     }
 
@@ -4624,8 +4912,8 @@ export default function FretboardScalesPage() {
         seen.add(key);
 
         const item = { ...v, _extra: extraCount };
-        if (bi === plan.bassInterval) outStrict.push(item);
-        else outLoose.push(item);
+        if (selectedBassIntervals.includes(bi)) outStrict.push(item);
+        else if (plan.inversion !== "all") outLoose.push(item);
       }
 
       const list = outStrict.length ? outStrict : outLoose;
@@ -4864,7 +5152,7 @@ export default function FretboardScalesPage() {
     [chordDetectSelectedNotes, chordDetectSelectedCandidate, chordPreferSharps]
   );
 
-  const chordSectionDisplayName = chordDetectMode && chordDetectSelectedCandidate
+  const chordBaseDisplayName = chordDetectMode && chordDetectSelectedCandidate
     ? chordDetectSelectedCandidate.name
     : chordDisplayNameFromUI({
         rootPc: chordRootPc,
@@ -4878,6 +5166,13 @@ export default function FretboardScalesPage() {
         ext11: chordExt11,
         ext13: chordExt13,
       });
+
+  const chordSectionDisplayName = buildChordHeaderSummary({
+    name: chordBaseDisplayName,
+    plan: chordEnginePlan,
+    voicing: activeChordVoicing,
+    positionForm: chordPositionForm,
+  });
 
   const nearFrom = nearWindowStart;
   const nearTo = Math.min(maxFret, nearWindowStart + nearWindowSize - 1);
@@ -4958,60 +5253,95 @@ export default function FretboardScalesPage() {
     });
 
     const inRange = (v) => v && v.notes.every((n) => n.fret === 0 || (n.fret >= nearFrom && n.fret <= nearTo));
+    const inversionChoices = concreteInversionsForSelection(plan.inversion, plan.ui?.allowThirdInversion);
+    const selectedBassIntervals = bassIntervalsForSelection(plan);
+    const rootCandidates = symmetricRootCandidatesForPlan(plan);
 
     if (plan.generator === "triad") {
-      const tri = filterVoicingsByForm(generateTriadVoicings({
-        rootPc: plan.rootPc,
-        thirdOffset: plan.thirdOffset,
-        fifthOffset: plan.fifthOffset,
-        inversion: plan.inversion,
-        maxFret: nearTo,
-        maxSpan: slotMaxDist,
-      }), plan.form).filter(inRange);
+      const tri = dedupeAndSortVoicings(rootCandidates.flatMap((rootCandidate) =>
+        inversionChoices.flatMap((inv) =>
+          filterVoicingsByForm(generateTriadVoicings({
+            rootPc: rootCandidate,
+            thirdOffset: plan.thirdOffset,
+            fifthOffset: plan.fifthOffset,
+            inversion: inv,
+            maxFret: nearTo,
+            maxSpan: slotMaxDist,
+          }), plan.form)
+            .filter(inRange)
+            .map((v) => normalizeGeneratedVoicingForDisplay(v, plan.rootPc, rootCandidate))
+        )
+      ));
       return { voicings: tri, err: tri.length ? null : "No encontré triadas en ese rango", plan };
     }
 
     if (plan.generator === "drop") {
       if (plan.seventhOffset == null) return { voicings: [], err: "No hay 7ª para esta combinación", plan };
-      const tet = generateDropTetradVoicings({
-        rootPc: plan.rootPc,
-        thirdOffset: plan.thirdOffset,
-        fifthOffset: plan.fifthOffset,
-        seventhOffset: plan.seventhOffset,
-        form: plan.form,
-        inversion: plan.inversion,
-        maxFret: nearTo,
-        maxSpan: slotMaxDist,
-      }).filter(inRange);
+      const tet = dedupeAndSortVoicings(rootCandidates.flatMap((rootCandidate) =>
+        inversionChoices.flatMap((inv) =>
+          generateDropTetradVoicings({
+            rootPc: rootCandidate,
+            thirdOffset: plan.thirdOffset,
+            fifthOffset: plan.fifthOffset,
+            seventhOffset: plan.seventhOffset,
+            form: plan.form,
+            inversion: inv,
+            maxFret: nearTo,
+            maxSpan: slotMaxDist,
+          })
+            .filter(inRange)
+            .map((v) => normalizeGeneratedVoicingForDisplay(v, plan.rootPc, rootCandidate))
+        )
+      ));
       return { voicings: tet, err: tet.length ? null : "No encontré drops en ese rango", plan };
     }
 
     if (plan.generator === "tetrad") {
-      const seventhLike = plan.singleAdd
-        ? (plan.ext13 ? 9 : plan.ext11 ? 5 : plan.ext9 ? 2 : 9)
-        : plan.seventhOffset;
-      if (seventhLike == null) return { voicings: [], err: "No hay 7ª para esta combinación", plan };
-      const tet = filterVoicingsByForm(generateTetradVoicings({
-        rootPc: plan.rootPc,
-        thirdOffset: plan.thirdOffset,
-        fifthOffset: plan.fifthOffset,
-        seventhOffset: seventhLike,
-        inversion: plan.inversion,
-        maxFret: nearTo,
-        maxSpan: slotMaxDist,
-      }), plan.form).filter(inRange);
+      const tet = plan.form === "open"
+        ? buildOpenSupersetTetradVoicings({
+            rootCandidates,
+            inversionChoices,
+            plan,
+            maxFret: nearTo,
+            maxSpan: slotMaxDist,
+          }).filter(inRange)
+        : (() => {
+            const seventhLike = plan.singleAdd
+              ? (plan.ext13 ? 9 : plan.ext11 ? 5 : plan.ext9 ? 2 : 9)
+              : plan.seventhOffset;
+            if (seventhLike == null) return [];
+            return dedupeAndSortVoicings(rootCandidates.flatMap((rootCandidate) =>
+              inversionChoices.flatMap((inv) =>
+                filterVoicingsByForm(generateTetradVoicings({
+                  rootPc: rootCandidate,
+                  thirdOffset: plan.thirdOffset,
+                  fifthOffset: plan.fifthOffset,
+                  seventhOffset: seventhLike,
+                  inversion: inv,
+                  maxFret: nearTo,
+                  maxSpan: slotMaxDist,
+                }), plan.form)
+                  .filter(inRange)
+                  .map((v) => normalizeGeneratedVoicingForDisplay(v, plan.rootPc, rootCandidate))
+              )
+            ));
+          })();
       const err = tet.length ? null : (plan.singleAdd ? "No encontré add* en ese rango" : "No encontré cuatriadas en ese rango");
       return { voicings: tet, err, plan };
     }
 
     if (plan.generator === "exact") {
-      const multi = generateExactIntervalChordVoicings({
-        rootPc: plan.rootPc,
-        intervals: plan.intervals,
-        bassInterval: plan.bassInterval,
-        maxFret: nearTo,
-        maxSpan: slotMaxDist,
-      }).filter(inRange);
+      const multi = dedupeAndSortVoicings(selectedBassIntervals.flatMap((bassInterval) =>
+        generateExactIntervalChordVoicings({
+          rootPc: plan.rootPc,
+          intervals: plan.intervals,
+          bassInterval,
+          maxFret: nearTo,
+          maxSpan: slotMaxDist,
+        })
+          .filter(inRange)
+          .map((v) => normalizeGeneratedVoicingForDisplay(v, plan.rootPc, plan.rootPc))
+      ));
       return { voicings: multi, err: multi.length ? null : "No hay add múltiples en rango", plan };
     }
 
@@ -5087,8 +5417,8 @@ export default function FretboardScalesPage() {
         seen.add(key);
 
         const item = { ...v, _extra: extraCount };
-        if (bi === plan.bassInterval) outStrict.push(item);
-        else outLoose.push(item);
+        if (selectedBassIntervals.includes(bi)) outStrict.push(item);
+        else if (plan.inversion !== "all") outLoose.push(item);
       }
 
       const list = outStrict.length ? outStrict : outLoose;
@@ -5577,7 +5907,7 @@ export default function FretboardScalesPage() {
     // Blues: la “blue note” se pinta como NOTA EXTRA (mismo color que extras), aunque forme parte de la escala.
     // - Blues (menor): b5 / #4 => 6
     // - Blues (mayor): b3 => 3
-    const bluesBlue = scaleName === "Blues (menor)" ? 6 : scaleName === "Blues (mayor)" ? 3 : null;
+    const bluesBlue = scaleName === "Pentatónica menor + blue note" ? 6 : scaleName === "Pentatónica mayor + blue note" ? 3 : null;
     if (bluesBlue != null && interval === bluesBlue) return "extra";
 
     if (interval === 0) return "root";
@@ -5731,6 +6061,16 @@ export default function FretboardScalesPage() {
   }, [patternsMode, isPentatonicScale, rootPc, scaleIntervals, maxFret]);
 
   const patternMembership = useMemo(() => buildMembershipMap(patternsMerged), [patternsMerged]);
+
+  const kingBoxOverlay = useMemo(
+    () => buildKingBoxOverlayMap({
+      enabled: isKingBoxEligibleScale && showKingBoxes,
+      mode: kingBoxMode,
+      rootPc,
+      maxFret,
+    }),
+    [isKingBoxEligibleScale, showKingBoxes, kingBoxMode, rootPc, maxFret]
+  );
 
   function patternBgStyle(cellKey) {
     const idxs = patternMembership.get(cellKey) || [];
@@ -5906,13 +6246,21 @@ export default function FretboardScalesPage() {
     );
   }
 
-  function Circle({ pc, role, fret, sIdx, badge }) {
+  function Circle({ pc, role, fret, sIdx, badge, kingTags = [] }) {
     const baseRole = role === "extra" ? "extra" : role;
+    const tagList = Array.isArray(kingTags) ? kingTags : [];
+    const baseStyle = circleStyle(baseRole);
+    const boxShadowParts = [baseStyle.boxShadow].filter(Boolean);
+    if (tagList.includes("bb")) boxShadowParts.push(`0 0 0 4px ${kingBoxColors.bb}`);
+    if (tagList.includes("albert")) boxShadowParts.push(`0 0 0 6px ${kingBoxColors.albert}`);
+    const kingTitle = tagList.length
+      ? ` · ${tagList.map((tag) => tag === "bb" ? KING_BOX_DEFAULTS.bb.label : KING_BOX_DEFAULTS.albert.label).join(" + ")}`
+      : "";
     return (
       <div
         className="relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold"
-        style={circleStyle(baseRole)}
-        title={`${pcToDualName(pc)} · ${intervalToDegreeToken(mod12(pc - rootPc))}`}
+        style={{ ...baseStyle, boxShadow: boxShadowParts.join(", ") }}
+        title={`${pcToDualName(pc)} · ${intervalToDegreeToken(mod12(pc - rootPc))}${kingTitle}`}
       >
         {labelForPc(pc)}
         {badge ? (
@@ -5966,7 +6314,7 @@ export default function FretboardScalesPage() {
       <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <div className="text-sm font-semibold text-slate-800">{title} {voicing ? chordDisplayNameFromUI({ rootPc: chordRootPc, preferSharps: chordPreferSharps, quality: chordQuality, suspension: chordSuspension, structure: chordStructure, ext7: chordExt7, ext6: chordExt6, ext9: chordExt9, ext11: chordExt11, ext13: chordExt13 }) : ""}</div>
+            <div className="text-sm font-semibold text-slate-800">{title}</div>
             <div className="text-xs text-slate-600">{voicing ? `Notas: ${noteText}. Bajo marcado con anillo negro.` : "No hay voicings para esta selección."}</div>
           </div>
           {voicing ? <div className="text-xs text-slate-600">Voicing {Math.min(voicingIdx + 1, voicingTotal)}/{voicingTotal}: <b>{voicing.frets}</b></div> : null}
@@ -6473,6 +6821,7 @@ export default function FretboardScalesPage() {
   function Fretboard({ title, subtitle, mode }) {
     // mode: scale | patterns | route
     const showAllNotes = showNonScale && mode === "scale";
+    const usesKingOverlay = mode === "scale" && isKingBoxEligibleScale && showKingBoxes;
 
     return (
       <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
@@ -6546,7 +6895,9 @@ export default function FretboardScalesPage() {
                       }
                     : {};
 
-                  const shouldRender = displayRole !== null || showAllNotes;
+                  const kingTags = usesKingOverlay ? Array.from(kingBoxOverlay.get(cellKey) || []) : [];
+                  const effectiveRole = displayRole ?? (kingTags.length ? roleOfPc(pc) : null);
+                  const shouldRender = effectiveRole !== null || showAllNotes || kingTags.length > 0;
 
                   return (
                     <div
@@ -6578,8 +6929,8 @@ export default function FretboardScalesPage() {
                         </div>
                       ) : null}
                       <HoverCellNote sIdx={sIdx} fret={fret} visible={!shouldRender} />
-                      {shouldRender && displayRole ? (
-                        <Circle pc={pc} role={displayRole} fret={fret} sIdx={sIdx} badge={mode === "route" ? routeIdx : null} />
+                      {shouldRender && effectiveRole ? (
+                        <Circle pc={pc} role={effectiveRole} fret={fret} sIdx={sIdx} badge={mode === "route" ? routeIdx : null} kingTags={kingTags} />
                       ) : showAllNotes ? (
                         <div className="text-[10px] text-slate-400">{labelForPc(pc)}</div>
                       ) : null}
@@ -7041,6 +7392,58 @@ export default function FretboardScalesPage() {
                   </div>
                 </div>
               </div>
+
+              {isKingBoxEligibleScale ? (
+                <div className="mt-2">
+                  <div className="min-w-[380px] max-w-[520px]">
+                    <div className={UI_LABEL_SM}>Casitas blues</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={showKingBoxes}
+                          onChange={(e) => setShowKingBoxes(e.target.checked)}
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                        Mostrar
+                      </label>
+                      <select
+                        className={UI_SELECT_SM + " w-40"}
+                        value={kingBoxMode}
+                        onChange={(e) => setKingBoxMode(e.target.value)}
+                        disabled={!showKingBoxes}
+                        title="Elige la casita a resaltar"
+                      >
+                        <option value="bb">B.B. King</option>
+                        <option value="albert">Albert King</option>
+                        <option value="both">Ambas</option>
+                      </select>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-700">
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={kingBoxColors.bb}
+                          onChange={(e) => setKingBoxColors((prev) => ({ ...prev, bb: e.target.value }))}
+                          className="h-7 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
+                          title="Color del borde de B.B. King"
+                        />
+                        <span>{KING_BOX_DEFAULTS.bb.label}</span>
+                      </label>
+                      <label className="inline-flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={kingBoxColors.albert}
+                          onChange={(e) => setKingBoxColors((prev) => ({ ...prev, albert: e.target.value }))}
+                          className="h-7 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
+                          title="Color del borde de Albert King"
+                        />
+                        <span>{KING_BOX_DEFAULTS.albert.label}</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </section>
 
             {/* MÁSTILES */}
@@ -7148,8 +7551,7 @@ export default function FretboardScalesPage() {
                       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
                         <div className="text-sm font-semibold text-slate-800">
                           Acorde
-                          <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700">{chordEngineLayerLabel(chordEnginePlan)}</span>
-                          <span className="ml-2 text-xs font-semibold text-slate-800">{chordSectionDisplayName}</span>
+                          <span className="ml-2 text-xs font-semibold text-slate-800">{chordBaseDisplayName}</span>
                           <span className="ml-2 text-xs font-normal text-slate-600">(Notas: {chordDetectMode ? (chordDetectSelectedNotesText || "—") : spelledChordNotes.join(", ")})</span>
                         </div>
                         <button
@@ -7287,40 +7689,26 @@ export default function FretboardScalesPage() {
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Forma</label>
                           {chordEnginePlan.ui.usesManualForm ? (
-                            <div className="mt-1 grid gap-1.5" style={{ gridTemplateColumns: "minmax(0,0.95fr) minmax(0,1.45fr)" }}>
-                              <select
-                                className={UI_SELECT_SM}
-                                value={chordPositionForm}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  setChordPositionForm(v);
-                                  if (!isDropForm(chordForm)) setChordForm(v);
-                                }}
-                                title="Posición del voicing: cerrado o abierto"
-                              >
-                                <option value="closed">Cerrado</option>
-                                <option value="open">Abierto</option>
-                              </select>
-                              <select
-                                className={UI_SELECT_SM}
-                                value={dropFormFromEffectiveForm(chordForm)}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  setChordForm(v === "none" ? chordPositionForm : v);
-                                }}
-                                title="Tipo de drop. Usa — para voicing libre"
-                              >
-                                {DROP_FORM_OPTIONS.map((form) => (
-                                  <option
-                                    key={form.value}
-                                    value={form.value}
-                                    disabled={form.value !== "none" && !chordEnginePlan.ui.dropEligible}
-                                  >
-                                    {form.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
+                            <select
+                              className={UI_SELECT_SM + " mt-1"}
+                              value={chordForm}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setChordForm(v);
+                                if (!isDropForm(v)) setChordPositionForm(v);
+                              }}
+                              title="Elige la disposición del acorde: cerrado, abierto o drop"
+                            >
+                              {CHORD_FORMS.map((form) => (
+                                <option
+                                  key={form.value}
+                                  value={form.value}
+                                  disabled={isDropForm(form.value) && !chordEnginePlan.ui.dropEligible}
+                                >
+                                  {form.label}
+                                </option>
+                              ))}
+                            </select>
                           ) : (
                             <div className="mt-1 flex h-7 items-center rounded-xl border border-slate-200 bg-slate-100 px-2 text-xs text-slate-500">
                               Automática
@@ -7529,7 +7917,7 @@ export default function FretboardScalesPage() {
                       </section>
                     </>
                   ) : (
-                    <ChordFretboard title="Acorde" voicing={activeChordVoicing} voicingIdx={chordVoicingIdx} voicingTotal={Math.max(1, chordVoicings.length)} />
+                    <ChordFretboard title={`Acorde ${chordSectionDisplayName}`} voicing={activeChordVoicing} voicingIdx={chordVoicingIdx} voicingTotal={Math.max(1, chordVoicings.length)} />
                   )}
                   <StudyPanel />
 
@@ -7740,42 +8128,24 @@ export default function FretboardScalesPage() {
                               <div className="min-w-0">
                                 <label className={UI_LABEL_SM}>Forma</label>
                                 {slotUi.usesManualForm ? (
-                                  <div className="mt-1 grid gap-1.5" style={{ gridTemplateColumns: "minmax(0,0.95fr) minmax(0,1.45fr)" }}>
-                                    <select
-                                      className={UI_SELECT_SM}
-                                      value={slot.positionForm || positionFormFromEffectiveForm(slot.form)}
-                                      onChange={(e) => {
-                                        const v = e.target.value;
-                                        updateNearSlot(idx, {
-                                          positionForm: v,
-                                          form: isDropForm(slot.form) ? slot.form : v,
-                                          selFrets: null,
-                                        });
-                                      }}
-                                      disabled={disableAll}
-                                      title="Posición del voicing: cerrado o abierto"
-                                    >
-                                      <option value="closed">Cerrado</option>
-                                      <option value="open">Abierto</option>
-                                    </select>
-                                    <select
-                                      className={UI_SELECT_SM}
-                                      value={dropFormFromEffectiveForm(slot.form)}
-                                      onChange={(e) => {
-                                        const v = e.target.value;
-                                        updateNearSlot(idx, {
-                                          form: v === "none" ? (slot.positionForm || "closed") : v,
-                                          selFrets: null,
-                                        });
-                                      }}
-                                      disabled={disableAll}
-                                      title="Tipo de drop. Usa — para voicing libre"
-                                    >
-                                      {DROP_FORM_OPTIONS.map((form) => (
-                                        <option key={form.value} value={form.value} disabled={form.value !== "none" && !slotUi.dropEligible}>{form.label}</option>
-                                      ))}
-                                    </select>
-                                  </div>
+                                  <select
+                                    className={UI_SELECT_SM + " mt-1"}
+                                    value={slot.form}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      updateNearSlot(idx, {
+                                        form: v,
+                                        positionForm: isDropForm(v) ? (slot.positionForm || "closed") : v,
+                                        selFrets: null,
+                                      });
+                                    }}
+                                    disabled={disableAll}
+                                    title="Elige la disposición del acorde: cerrado, abierto o drop"
+                                  >
+                                    {CHORD_FORMS.map((form) => (
+                                      <option key={form.value} value={form.value} disabled={isDropForm(form.value) && !slotUi.dropEligible}>{form.label}</option>
+                                    ))}
+                                  </select>
                                 ) : (
                                   <div className="mt-1 flex h-7 items-center rounded-xl border border-slate-200 bg-slate-100 px-2 text-xs text-slate-500">Automática</div>
                                 )}
