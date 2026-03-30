@@ -1,4 +1,3 @@
-````md
 # Mástil interactivo de guitarra
 
 Aplicación web para estudiar **escalas, patrones, rutas musicales y acordes** sobre el mástil de la guitarra de forma visual e interactiva.
