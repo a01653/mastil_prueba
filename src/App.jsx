@@ -7969,7 +7969,7 @@ export default function FretboardScalesPage() {
                 <div className="mt-2">
                   <div className="min-w-[380px] max-w-[520px]">
                     <div className={UI_LABEL_SM}>Casitas blues</div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <div className="mt-1 flex items-center gap-2">
                       <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
                         <input
                           type="checkbox"
@@ -7991,7 +7991,7 @@ export default function FretboardScalesPage() {
                         <option value="both">Ambas</option>
                       </select>
                     </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-700">
+                    <div className="mt-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-700">
                       <label className="inline-flex items-center gap-2">
                         <input
                           type="color"
