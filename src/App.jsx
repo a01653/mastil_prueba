@@ -969,8 +969,8 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "2.16";
-const APP_VERSION_STAMP = "2026-03-27 17:00";
+const APP_VERSION = "2.57";
+const APP_VERSION_STAMP = "2026-04-01 11:35";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -2415,6 +2415,16 @@ function buildDetectedCandidateRoleForPc(pc, candidate) {
   return detectFormulaRole(candidate.formula, interval);
 }
 
+function buildManualSelectionVoicing(selectedNotes, rootPc, maxFret) {
+  if (!Array.isArray(selectedNotes) || !selectedNotes.length) return null;
+  const fretsLH = [null, null, null, null, null, null];
+  for (const n of selectedNotes) {
+    if (!n) continue;
+    fretsLH[5 - n.sIdx] = n.fret;
+  }
+  return buildVoicingFromFretsLH({ fretsLH, rootPc, maxFret });
+}
+
 function buildCloseTetradAbsoluteOrders(thirdOffset, fifthOffset, seventhOffset) {
   const t = mod12(thirdOffset);
   const f = mod12(fifthOffset);
@@ -2998,6 +3008,56 @@ function preferSharpsFromMajorTonicPc(tonicPc) {
 function computeAutoPreferSharps({ rootPc, scaleName }) {
   const parent = getParentMajorTonicPc({ rootPc, scaleName });
   return preferSharpsFromMajorTonicPc(parent);
+}
+
+const MAJOR_KEY_SIGNATURES = {
+  0: { type: null, count: 0 },
+  7: { type: "sharp", count: 1 },
+  2: { type: "sharp", count: 2 },
+  9: { type: "sharp", count: 3 },
+  4: { type: "sharp", count: 4 },
+  11: { type: "sharp", count: 5 },
+  6: { type: "sharp", count: 6 },
+  1: { type: "flat", count: 5 },
+  5: { type: "flat", count: 1 },
+  10: { type: "flat", count: 2 },
+  3: { type: "flat", count: 3 },
+  8: { type: "flat", count: 4 },
+};
+
+const SCALE_NAMES_WITH_KEY_SIGNATURE = new Set([
+  "Mayor",
+  "Menor natural",
+  "Menor armónica",
+  "Menor melódica (asc)",
+  "Pentatónica mayor",
+  "Pentatónica menor",
+  "Pentatónica mayor + blue note",
+  "Pentatónica menor + blue note",
+  "Jónica (Ionian)",
+  "Dórica (Dorian)",
+  "Frigia (Phrygian)",
+  "Lidia (Lydian)",
+  "Mixolidia (Mixolydian)",
+  "Eólica (Aeolian)",
+  "Locria (Locrian)",
+]);
+
+function keySignatureParentMajorTonicPc({ rootPc, scaleName }) {
+  const normalized = normalizeScaleName(scaleName);
+  if (!SCALE_NAMES_WITH_KEY_SIGNATURE.has(normalized)) return null;
+  if (normalized === "Menor armónica" || normalized === "Menor melódica (asc)") return mod12(rootPc + 3);
+  if (normalized === "Pentatónica mayor + blue note") return rootPc;
+  if (normalized === "Pentatónica menor + blue note") return mod12(rootPc + 3);
+  return getParentMajorTonicPc({ rootPc, scaleName: normalized });
+}
+
+function resolveKeySignatureForScale({ rootPc, scaleName }) {
+  const parentMajorPc = keySignatureParentMajorTonicPc({ rootPc, scaleName });
+  if (parentMajorPc == null) return null;
+  const spec = MAJOR_KEY_SIGNATURES[parentMajorPc];
+  if (!spec || !spec.count) return { type: null, count: 0, tonicPc: parentMajorPc };
+  return { ...spec, tonicPc: parentMajorPc };
 }
 
 // --------------------------------------------------------------------------
@@ -3771,6 +3831,991 @@ function sanitizePresetCollection(raw) {
   });
 }
 
+const ROUTE_LAB_DEFAULT_TUNING = {
+  sameStringDirectionalBonusNear: 1.35,
+  sameStringDirectionalBonusFar: 0.7,
+  switchWhenSameStringForwardPenalty: 3.1,
+  worseThanSameStringGoalBase: 4.6,
+  worseThanSameStringGoalScale: 1.75,
+  corridorPenalty: 1.25,
+  openStringWithAlternativePenalty: 4.2,
+  overshootNearEndAlt: 8.5,
+  overshootNearEndNoAlt: 4.0,
+  overshootTwoStepsAlt: 5.5,
+  overshootTwoStepsNoAlt: 2.4,
+  overshootMidAlt: 3.0,
+  overshootMidNoAlt: 1.2,
+  templateStayBonus: 1.2,
+  templateEnterBonus: 0.55,
+  templateNeighborBonus: 0.4,
+  templateMissPenalty: 1.1,
+  resolveToGoalBonus: 1.8,
+  lateStringBreakBonus: 2.8,
+  lateSameStringPenalty: 6.5,
+  lateOvershootPenalty: 10.5,
+};
+
+const ROUTE_LAB_FIXED_TESTS = [
+  {
+    id: "penta_major_f_63_110",
+    label: "Penta mayor F · 63 → 110",
+    rootPc: 5,
+    scaleName: "Pentatónica mayor",
+    startCode: "63",
+    endCode: "110",
+    maxFret: 15,
+    maxPerString: 4,
+    checks: [
+      { type: "excludeCode", code: "212", severity: "soft" },
+      { type: "excludeCode", code: "412", severity: "soft" },
+    ],
+  },
+  {
+    id: "penta_major_f_11_110",
+    label: "Penta mayor F · 11 → 110",
+    rootPc: 5,
+    scaleName: "Pentatónica mayor",
+    startCode: "11",
+    endCode: "110",
+    maxFret: 15,
+    maxPerString: 4,
+    checks: [],
+  },
+  {
+    id: "major_f_11_112",
+    label: "Mayor F · 11 → 112",
+    rootPc: 5,
+    scaleName: "Mayor",
+    startCode: "11",
+    endCode: "112",
+    maxFret: 15,
+    maxPerString: 4,
+    checks: [],
+  },
+  {
+    id: "minor_natural_f_61_113",
+    label: "Menor natural F · 61 → 113",
+    rootPc: 5,
+    scaleName: "Menor natural",
+    startCode: "61",
+    endCode: "113",
+    maxFret: 15,
+    maxPerString: 4,
+    checks: [],
+  },
+  {
+    id: "blues_minor_f_61_17",
+    label: "Blues menor F · 61 → 17",
+    rootPc: 5,
+    scaleName: "Pentatónica menor + blue note",
+    startCode: "61",
+    endCode: "17",
+    maxFret: 15,
+    maxPerString: 4,
+    checks: [],
+  },
+  {
+    id: "bebop_major_f_10_63",
+    label: "Bebop mayor F · 10 → 63",
+    rootPc: 5,
+    scaleName: "Bebop mayor",
+    startCode: "10",
+    endCode: "63",
+    maxFret: 15,
+    maxPerString: 4,
+    checks: [],
+  },
+];
+
+const ROUTE_LAB_BENCHMARK_SPECS = [
+  { scaleName: "Pentatónica mayor", rootPc: 5, maxFret: 15, maxPerString: 4, targetAsc: 12 },
+  { scaleName: "Pentatónica menor", rootPc: 5, maxFret: 15, maxPerString: 4, targetAsc: 12 },
+  { scaleName: "Mayor", rootPc: 5, maxFret: 15, maxPerString: 4, targetAsc: 12 },
+  { scaleName: "Menor natural", rootPc: 5, maxFret: 15, maxPerString: 4, targetAsc: 12 },
+  { scaleName: "Pentatónica menor + blue note", rootPc: 5, maxFret: 15, maxPerString: 4, targetAsc: 10 },
+  { scaleName: "Bebop mayor", rootPc: 5, maxFret: 15, maxPerString: 4, targetAsc: 10 },
+];
+
+function routeLabTemplateFamily(scaleName, scaleIntervals) {
+  const normalized = normalizeScaleName(scaleName || "");
+  if (normalized.startsWith("Pentatónica") && scaleIntervals.length >= 5) return "penta";
+  if (normalized.startsWith("Bebop")) return "bebop";
+  if ((normalized === "Mayor" || normalized === "Menor natural") && scaleIntervals.length === 7) return "major_minor";
+  return null;
+}
+
+function routeLabTemplateCorridorHits(cells, startPos, endPos) {
+  const minString = Math.min(startPos.sIdx, endPos.sIdx);
+  const maxString = Math.max(startPos.sIdx, endPos.sIdx);
+  const minFret = Math.min(startPos.fret, endPos.fret) - 2;
+  const maxFret = Math.max(startPos.fret, endPos.fret) + 2;
+  let hits = 0;
+
+  for (const cell of cells || []) {
+    const [sStr, fStr] = String(cell).split(":");
+    const sIdx = parseInt(sStr, 10);
+    const fret = parseInt(fStr, 10);
+    if (!Number.isFinite(sIdx) || !Number.isFinite(fret)) continue;
+    if (sIdx < minString || sIdx > maxString) continue;
+    if (fret < minFret || fret > maxFret) continue;
+    hits += 1;
+  }
+
+  return hits;
+}
+
+function buildRouteLabTemplateContext({ rootPc, scaleName, scaleIntervals, maxFret, startPos, endPos }) {
+  const family = routeLabTemplateFamily(scaleName, scaleIntervals);
+  if (!family || !startPos || !endPos) {
+    return { enabled: false, family: null, instances: [], preferredIds: new Set(), membership: new Map(), anchorById: new Map(), stringCountById: new Map() };
+  }
+
+  const instances = family === "penta"
+    ? buildPentatonicBoxInstances({ rootPc, scaleIntervals, maxFret })
+    : build3NpsPatternInstances({ rootPc, scaleIntervals, maxFret });
+
+  if (!instances.length) {
+    return { enabled: false, family, instances: [], preferredIds: new Set(), membership: new Map(), anchorById: new Map(), stringCountById: new Map() };
+  }
+
+  const startKey = `${startPos.sIdx}:${startPos.fret}`;
+  const endKey = `${endPos.sIdx}:${endPos.fret}`;
+
+  const ranked = instances
+    .map((inst, idx) => {
+      const anchor = inst.anchorFret ?? inst.rootFret ?? inst.windowStart ?? 0;
+      const hasStart = inst.cells.has(startKey);
+      const hasEnd = inst.cells.has(endKey);
+      const corridorHits = routeLabTemplateCorridorHits(inst.cells, startPos, endPos);
+      const startDist = Math.abs(anchor - startPos.fret);
+      const endDist = Math.abs(anchor - endPos.fret);
+      const score =
+        (hasStart ? 10 : 0) +
+        (hasEnd ? 8 : 0) +
+        (corridorHits * 0.35) -
+        (startDist * 0.55) -
+        (endDist * 0.3);
+
+      return { idx, anchor, score };
+    })
+    .sort((a, b) => b.score - a.score || a.anchor - b.anchor);
+
+  const chosen = ranked.filter((item, idx) => item.score > 0 || idx < 3).slice(0, 4);
+  if (!chosen.length && ranked.length) chosen.push(ranked[0]);
+
+  const preferredIds = new Set(chosen.map((item) => item.idx));
+  const membership = new Map();
+  const anchorById = new Map();
+
+  for (const item of chosen) {
+    anchorById.set(item.idx, item.anchor);
+    for (const cell of instances[item.idx].cells) {
+      if (!membership.has(cell)) membership.set(cell, []);
+      membership.get(cell).push(item.idx);
+    }
+  }
+
+  for (const [cell, ids] of membership.entries()) {
+    membership.set(cell, ids.sort((a, b) => a - b));
+  }
+
+    const stringCountById = new Map();
+  for (const item of chosen) {
+    const counts = [0, 0, 0, 0, 0, 0];
+    for (const cell of instances[item.idx].cells) {
+      const [sStr] = String(cell).split(":");
+      const sIdx = parseInt(sStr, 10);
+      if (Number.isFinite(sIdx) && sIdx >= 0 && sIdx < 6) counts[sIdx] += 1;
+    }
+    stringCountById.set(item.idx, counts);
+  }
+
+  return {
+    enabled: preferredIds.size > 0,
+    family,
+    instances,
+    preferredIds,
+    membership,
+    anchorById,
+    stringCountById,
+  };
+}
+
+function inferRouteLabPreferredNotesPerString(scaleName, scaleIntervals, requestedMax) {
+  const normalized = normalizeScaleName(scaleName || "");
+  const requested = Math.max(1, Math.min(5, Number(requestedMax) || 3));
+
+  const isCompactFamily = normalized.includes("Pentatónica") || normalized.includes("blue note") || scaleIntervals.length <= 6;
+  const isLinearFamily = normalized.includes("Bebop") || scaleIntervals.length >= 7;
+
+  let nativeTarget = requested;
+  if (isCompactFamily) nativeTarget = 2;
+  else if (isLinearFamily) nativeTarget = 3;
+
+  const phraseTarget = nativeTarget;
+  const softTarget = Math.min(4, Math.max(nativeTarget, requested));
+  const hardLimit = Math.min(4, Math.max(softTarget, nativeTarget + 1));
+
+  return {
+    nativeTarget,
+    requested,
+    phraseTarget,
+    softTarget,
+    hardLimit,
+  };
+}
+
+function routeLabCodesFromPath(path) {
+  return (Array.isArray(path) ? path : []).map((n) => `${n.sIdx + 1}${n.fret}`);
+}
+
+function routeLabMaxRun(path) {
+  const list = Array.isArray(path) ? path : [];
+  if (!list.length) return 0;
+  let best = 1;
+  let cur = 1;
+  for (let i = 1; i < list.length; i++) {
+    if (list[i].sIdx === list[i - 1].sIdx) {
+      cur += 1;
+      if (cur > best) best = cur;
+    } else {
+      cur = 1;
+    }
+  }
+  return best;
+}
+
+function routeLabFretReversalCount(path) {
+  const list = Array.isArray(path) ? path : [];
+  let prevSign = 0;
+  let count = 0;
+
+  for (let i = 1; i < list.length; i++) {
+    const prev = list[i - 1];
+    const cur = list[i];
+    const df = cur.fret - prev.fret;
+    const ds = Math.abs(cur.sIdx - prev.sIdx);
+    if (df === 0) continue;
+
+    const sign = df > 0 ? 1 : -1;
+    const guitaristicDiagonal = ds === 1 && Math.abs(df) <= 3;
+
+    if (guitaristicDiagonal) continue;
+
+    if (prevSign !== 0 && sign !== prevSign) count += 1;
+    prevSign = sign;
+  }
+
+  return count;
+}
+
+function routeLabHasAdjacentSequence(codes, seq) {
+  const list = Array.isArray(codes) ? codes : [];
+  const wanted = Array.isArray(seq) ? seq : [];
+  if (!wanted.length || wanted.length > list.length) return false;
+  for (let i = 0; i <= list.length - wanted.length; i++) {
+    let ok = true;
+    for (let j = 0; j < wanted.length; j++) {
+      if (list[i + j] !== wanted[j]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+
+function routeLabGoalSideOvershootCount(path, startPos, endPos) {
+  const list = Array.isArray(path) ? path : [];
+  const fretDir = endPos?.fret === startPos?.fret ? 0 : (endPos?.fret > startPos?.fret ? 1 : -1);
+  if (!list.length || fretDir === 0) return 0;
+  let count = 0;
+  for (let i = 1; i < list.length - 1; i++) {
+    const fret = list[i]?.fret;
+    if (!Number.isFinite(fret)) continue;
+    if (fretDir > 0 && fret > endPos.fret) count += 1;
+    if (fretDir < 0 && fret < endPos.fret) count += 1;
+  }
+  return count;
+}
+
+function evaluateRouteLabGenericQuality({ result, startPos, endPos, scaleName, scaleIntervals, maxPerString }) {
+  const phrasing = inferRouteLabPreferredNotesPerString(scaleName, scaleIntervals, maxPerString);
+  const maxRun = routeLabMaxRun(result.path);
+  const reversals = routeLabFretReversalCount(result.path);
+  const overshootCount = routeLabGoalSideOvershootCount(result.path, startPos, endPos);
+  const hardFailures = [];
+  const softFailures = [];
+
+  if (result.reason) hardFailures.push(result.reason);
+
+  if (!result.reason && maxRun > phrasing.hardLimit) {
+    hardFailures.push(`Bloque máximo ${maxRun} > ${phrasing.hardLimit}`);
+  } else if (!result.reason && maxRun > phrasing.softTarget) {
+    softFailures.push(`Bloque máximo ${maxRun} > ${phrasing.softTarget}`);
+  }
+
+  if (!result.reason && reversals > 2) softFailures.push(`Retrocesos ${reversals} > 2`);
+  else if (!result.reason && reversals > 1) softFailures.push(`Retrocesos ${reversals} > 1`);
+
+  if (!result.reason && overshootCount > 1) softFailures.push(`Se pasa del objetivo ${overshootCount} veces`);
+  else if (!result.reason && overshootCount > 0) softFailures.push(`Se pasa del objetivo ${overshootCount} vez`);
+
+  return {
+    maxRun,
+    reversals,
+    overshootCount,
+    hardFailures,
+    softFailures,
+    metrics: {
+      noRoute: !!result.reason,
+      runHard: !result.reason && maxRun > phrasing.hardLimit,
+      reversalHard: false,
+      runWarn: !result.reason && maxRun > phrasing.softTarget && maxRun <= phrasing.hardLimit,
+      reversalWarn: !result.reason && reversals > 1,
+      overshootWarn: !result.reason && overshootCount > 0,
+    },
+  };
+}
+
+function evaluateRouteLabFixedTest(test, tuning = ROUTE_LAB_DEFAULT_TUNING) {
+  const intervals = buildScaleIntervals(test.scaleName, "", test.rootPc);
+  const startPos = parsePosCode(test.startCode);
+  const endPos = parsePosCode(test.endCode);
+  const result = computeRouteLab({
+    rootPc: test.rootPc,
+    scaleName: test.scaleName,
+    scaleIntervals: intervals,
+    maxFret: test.maxFret,
+    startPos,
+    endPos,
+    maxNotesPerString: test.maxPerString,
+    tuning,
+  });
+
+  const codes = routeLabCodesFromPath(result.path);
+  const generic = evaluateRouteLabGenericQuality({
+    result,
+    startPos,
+    endPos,
+    scaleName: test.scaleName,
+    scaleIntervals: intervals,
+    maxPerString: test.maxPerString,
+  });
+
+  const hardFailures = [...generic.hardFailures];
+  const softFailures = [...generic.softFailures];
+
+  const pushFailure = (severity, text) => {
+    if (severity === "soft") softFailures.push(text);
+    else hardFailures.push(text);
+  };
+
+  for (const check of test.checks || []) {
+    const severity = check.severity || "hard";
+    if (check.type === "includeSeq" && !routeLabHasAdjacentSequence(codes, check.seq)) {
+      pushFailure(severity, `Falta ${check.seq.join(" → ")}`);
+    }
+    if (check.type === "excludeSeq" && routeLabHasAdjacentSequence(codes, check.seq)) {
+      pushFailure(severity, `Sobra ${check.seq.join(" → ")}`);
+    }
+    if (check.type === "excludeCode" && codes.includes(check.code)) {
+      pushFailure(severity, `Incluye ${check.code}`);
+    }
+  }
+
+  return {
+    ...test,
+    result,
+    codes,
+    text: codes.join(" → "),
+    maxRun: generic.maxRun,
+    reversals: generic.reversals,
+    overshootCount: generic.overshootCount,
+    ok: hardFailures.length === 0,
+    warning: hardFailures.length === 0 && softFailures.length > 0,
+    failures: [...hardFailures, ...softFailures],
+    hardFailures,
+    softFailures,
+    metrics: generic.metrics,
+  };
+}
+
+function runRouteLabFixedTests(tuning = ROUTE_LAB_DEFAULT_TUNING) {
+  return ROUTE_LAB_FIXED_TESTS.map((test) => evaluateRouteLabFixedTest(test, tuning));
+}
+
+function summarizeRouteLabFixedResults(results) {
+  const total = results.length;
+  const passed = results.filter((x) => x.ok && !x.warning).length;
+  const warning = results.filter((x) => x.warning).length;
+  const failed = results.filter((x) => !x.ok).length;
+  return { total, passed, warning, failed };
+}
+
+function buildRouteLabScalePositions({ rootPc, scaleName, maxFret }) {
+  const intervals = buildScaleIntervals(scaleName, "", rootPc);
+  const scalePcSet = new Set(intervals.map((i) => mod12(rootPc + i)));
+  const positions = [];
+  for (let sIdx = 0; sIdx < 6; sIdx++) {
+    for (let fret = 0; fret <= Math.min(maxFret, 12); fret++) {
+      const pc = mod12(STRINGS[sIdx].pc + fret);
+      if (!scalePcSet.has(pc)) continue;
+      positions.push({
+        sIdx,
+        fret,
+        pc,
+        pitch: pitchAt(sIdx, fret),
+        code: `${sIdx + 1}${fret}`,
+      });
+    }
+  }
+  positions.sort((a, b) => a.pitch - b.pitch || a.sIdx - b.sIdx || a.fret - b.fret);
+  return { intervals, positions };
+}
+
+function buildRouteLabBenchmarkCases() {
+  const out = [];
+
+  for (const spec of ROUTE_LAB_BENCHMARK_SPECS) {
+    const { positions } = buildRouteLabScalePositions(spec);
+    if (positions.length < 8) continue;
+
+    const lowCutPitch = positions[Math.max(0, Math.floor((positions.length - 1) * 0.35))]?.pitch ?? positions[positions.length - 1].pitch;
+    const highCutPitch = positions[Math.max(0, Math.floor((positions.length - 1) * 0.65))]?.pitch ?? positions[0].pitch;
+    const lowPool = positions.filter((p) => p.pitch <= lowCutPitch);
+    const highPool = positions.filter((p) => p.pitch >= highCutPitch);
+    const asc = [];
+    const seen = new Set();
+
+    for (let i = 0; i < lowPool.length && asc.length < (spec.targetAsc || 12); i += 2) {
+      const start = lowPool[i];
+      for (let j = 0; j < highPool.length && asc.length < (spec.targetAsc || 12); j += 2) {
+        const end = highPool[j];
+        const pitchGap = end.pitch - start.pitch;
+        const stringGap = Math.abs(end.sIdx - start.sIdx);
+        if (pitchGap < 7 || pitchGap > 19) continue;
+        if (stringGap < 2) continue;
+        if (start.code === end.code) continue;
+
+        const key = `${spec.scaleName}|${start.code}|${end.code}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        asc.push({
+          id: key,
+          label: `${spec.scaleName} · ${start.code} → ${end.code}`,
+          rootPc: spec.rootPc,
+          scaleName: spec.scaleName,
+          startCode: start.code,
+          endCode: end.code,
+          maxFret: spec.maxFret,
+          maxPerString: spec.maxPerString,
+        });
+      }
+    }
+
+    const desc = asc.map((item) => ({
+      ...item,
+      id: `${item.id}|desc`,
+      label: `${item.scaleName} · ${item.endCode} → ${item.startCode}`,
+      startCode: item.endCode,
+      endCode: item.startCode,
+    }));
+
+    out.push(...asc, ...desc);
+  }
+
+  return out;
+}
+
+function evaluateRouteLabBenchmarkCase(test, tuning = ROUTE_LAB_DEFAULT_TUNING) {
+  const intervals = buildScaleIntervals(test.scaleName, "", test.rootPc);
+  const startPos = parsePosCode(test.startCode);
+  const endPos = parsePosCode(test.endCode);
+  const result = computeRouteLab({
+    rootPc: test.rootPc,
+    scaleName: test.scaleName,
+    scaleIntervals: intervals,
+    maxFret: test.maxFret,
+    startPos,
+    endPos,
+    maxNotesPerString: test.maxPerString,
+    tuning,
+  });
+  const generic = evaluateRouteLabGenericQuality({
+    result,
+    startPos,
+    endPos,
+    scaleName: test.scaleName,
+    scaleIntervals: intervals,
+    maxPerString: test.maxPerString,
+  });
+
+  return {
+    ...test,
+    result,
+    text: routeLabCodesFromPath(result.path).join(" → "),
+    maxRun: generic.maxRun,
+    reversals: generic.reversals,
+    overshootCount: generic.overshootCount,
+    ok: generic.hardFailures.length === 0,
+    warning: generic.hardFailures.length === 0 && generic.softFailures.length > 0,
+    hardFailures: generic.hardFailures,
+    softFailures: generic.softFailures,
+    metrics: generic.metrics,
+  };
+}
+
+function summarizeRouteLabBenchmark(cases, tuning = ROUTE_LAB_DEFAULT_TUNING) {
+  const results = cases.map((test) => evaluateRouteLabBenchmarkCase(test, tuning));
+  const byScaleMap = new Map();
+
+  for (const item of results) {
+    if (!byScaleMap.has(item.scaleName)) {
+      byScaleMap.set(item.scaleName, { scaleName: item.scaleName, total: 0, passed: 0, warning: 0, failed: 0 });
+    }
+    const row = byScaleMap.get(item.scaleName);
+    row.total += 1;
+    if (!item.ok) row.failed += 1;
+    else if (item.warning) row.warning += 1;
+    else row.passed += 1;
+  }
+
+  const total = results.length;
+  const passed = results.filter((x) => x.ok && !x.warning).length;
+  const warning = results.filter((x) => x.warning).length;
+  const failed = results.filter((x) => !x.ok).length;
+  const noRoute = results.filter((x) => x.metrics.noRoute).length;
+  const overshootWarnings = results.filter((x) => x.metrics.overshootWarn).length;
+  const runWarnings = results.filter((x) => x.metrics.runWarn || x.metrics.runHard).length;
+  const reversalWarnings = results.filter((x) => x.metrics.reversalWarn || x.metrics.reversalHard).length;
+
+  return {
+    total,
+    passed,
+    warning,
+    failed,
+    noRoute,
+    overshootWarnings,
+    runWarnings,
+    reversalWarnings,
+    byScale: Array.from(byScaleMap.values()),
+    results,
+  };
+}
+
+function buildRouteLabPitchLine({ rootPc, scaleIntervals, startPitch, endPitch }) {
+  const ordered = Array.from(new Set((scaleIntervals || []).map(mod12))).sort((a, b) => a - b);
+  if (ordered.length < 2) return { pitches: [], pitchDirection: 0, error: "Escala demasiado corta" };
+  if (startPitch === endPitch) return { pitches: [startPitch], pitchDirection: 0, error: null };
+
+  const startRel = mod12(startPitch - rootPc);
+  const endRel = mod12(endPitch - rootPc);
+  const startIdx = ordered.indexOf(startRel);
+  const endIdx = ordered.indexOf(endRel);
+  if (startIdx < 0 || endIdx < 0) {
+    return { pitches: [], pitchDirection: 0, error: "Inicio y/o fin no están en la escala" };
+  }
+
+  const pitchDirection = endPitch > startPitch ? 1 : -1;
+  const pitches = [startPitch];
+  let currentPitch = startPitch;
+  let currentIdx = startIdx;
+  let guard = 0;
+
+  while ((pitchDirection === 1 && currentPitch < endPitch) || (pitchDirection === -1 && currentPitch > endPitch)) {
+    const nextIdx = pitchDirection === 1
+      ? (currentIdx + 1) % ordered.length
+      : (currentIdx - 1 + ordered.length) % ordered.length;
+
+    const curRel = ordered[currentIdx];
+    const nextRel = ordered[nextIdx];
+    let step = pitchDirection === 1
+      ? ((nextRel - curRel + 12) % 12)
+      : ((curRel - nextRel + 12) % 12);
+    if (step === 0) step = 12;
+
+    currentPitch += pitchDirection * step;
+    pitches.push(currentPitch);
+    currentIdx = nextIdx;
+
+    guard += 1;
+    if (guard > 400) return { pitches: [], pitchDirection, error: "Ruta demasiado larga" };
+  }
+
+  if (currentPitch !== endPitch) {
+    return { pitches: [], pitchDirection, error: "No se puede llegar siguiendo la escala" };
+  }
+
+  return { pitches, pitchDirection, error: null };
+}
+
+function computeRouteLab({
+  rootPc,
+  scaleName,
+  scaleIntervals,
+  maxFret,
+  startPos,
+  endPos,
+  maxNotesPerString,
+}) {
+  if (!startPos || !endPos) return { path: [], cost: null, reason: "Posición inválida", debugSteps: [] };
+  if (startPos.fret > maxFret || endPos.fret > maxFret) return { path: [], cost: null, reason: "Aumenta trastes", debugSteps: [] };
+
+  const startPitch = pitchAt(startPos.sIdx, startPos.fret);
+  const endPitch = pitchAt(endPos.sIdx, endPos.fret);
+  const pitchLine = buildRouteLabPitchLine({ rootPc, scaleIntervals, startPitch, endPitch });
+  if (pitchLine.error) return { path: [], cost: null, reason: pitchLine.error, debugSteps: [] };
+
+  const normalizedScale = normalizeScaleName(scaleName || "");
+  const family = routeLabTemplateFamily(normalizedScale, scaleIntervals);
+  const width = family === "penta" || family === "major_minor" ? 5 : 6;
+  const phrasing = inferRouteLabPreferredNotesPerString(scaleName, scaleIntervals, maxNotesPerString);
+  const targetStringDir = endPos.sIdx === startPos.sIdx ? 0 : (endPos.sIdx > startPos.sIdx ? 1 : -1);
+  const targetFretDir = endPos.fret === startPos.fret ? 0 : (endPos.fret > startPos.fret ? 1 : -1);
+  const maxStringJump = family === "bebop" ? 2 : 1;
+  const maxFretJump = family === "bebop" ? 6 : 5;
+
+  const boxStartsForFret = (fret) => {
+    const maxStart = Math.max(0, maxFret - (width - 1));
+    const lo = Math.max(0, fret - (width - 1));
+    const hi = Math.min(fret, maxStart);
+    const out = [];
+    for (let start = lo; start <= hi; start++) out.push(start);
+    return out.length ? out : [Math.max(0, Math.min(maxStart, fret))];
+  };
+
+  const corridorStarts = Array.from(new Set([
+    ...boxStartsForFret(startPos.fret),
+    ...boxStartsForFret(endPos.fret),
+    ...boxStartsForFret(Math.floor((startPos.fret + endPos.fret) / 2)),
+  ])).sort((a, b) => a - b);
+
+  const corridorDeviation = (fret) => {
+    if (!corridorStarts.length) return 0;
+    let best = Number.POSITIVE_INFINITY;
+    for (const start of corridorStarts) {
+      const end = start + width - 1;
+      if (fret >= start && fret <= end) return 0;
+      const dev = fret < start ? (start - fret) : (fret - end);
+      if (dev < best) best = dev;
+    }
+    return Number.isFinite(best) ? best : 0;
+  };
+
+  const scalePcSet = new Set(scaleIntervals.map((i) => mod12(rootPc + i)));
+  const boxCache = new Map();
+  const getBoxInfo = (start) => {
+    if (boxCache.has(start)) return boxCache.get(start);
+    const end = Math.min(maxFret, start + width - 1);
+    const stringFrets = Array.from({ length: 6 }, () => []);
+    for (let sIdx = 0; sIdx < 6; sIdx++) {
+      for (let fret = start; fret <= end; fret++) {
+        const pc = mod12(STRINGS[sIdx].pc + fret);
+        if (scalePcSet.has(pc)) stringFrets[sIdx].push(fret);
+      }
+    }
+    const info = { start, end, stringFrets };
+    boxCache.set(start, info);
+    return info;
+  };
+
+  const cellInBox = (boxStart, pos) => {
+    if (!pos) return false;
+    return getBoxInfo(boxStart).stringFrets[pos.sIdx].includes(pos.fret);
+  };
+
+  const candidates = pitchLine.pitches.map((pitch, idx) => {
+    if (idx === 0) return [{ sIdx: startPos.sIdx, fret: startPos.fret, pc: mod12(STRINGS[startPos.sIdx].pc + startPos.fret) }];
+    if (idx === pitchLine.pitches.length - 1) return [{ sIdx: endPos.sIdx, fret: endPos.fret, pc: mod12(STRINGS[endPos.sIdx].pc + endPos.fret) }];
+    return positionsForPitch(pitch, maxFret);
+  });
+
+  if (candidates.some((arr) => !arr.length)) {
+    return { path: [], cost: null, reason: "Hay notas de la línea sin posición en este rango", debugSteps: [] };
+  }
+
+  const futureCoverage = (boxStart, fromIndex, lookahead = 4) => {
+    let hits = 0;
+    for (let i = fromIndex; i < Math.min(candidates.length, fromIndex + lookahead); i++) {
+      if (candidates[i].some((cand) => cellInBox(boxStart, cand))) hits += 1;
+    }
+    return hits;
+  };
+
+  const nextSameStringOptions = (boxStart, fromIndex, sIdx) => {
+    if (fromIndex >= candidates.length) return [];
+    return candidates[fromIndex].filter((cand) => cand.sIdx === sIdx && cellInBox(boxStart, cand));
+  };
+
+  const sameStringChainPotential = (boxStart, fromIndex, sIdx) => {
+    let len = 0;
+    for (let j = fromIndex; j < candidates.length; j++) {
+      const ok = candidates[j].some((cand) => cand.sIdx === sIdx && cellInBox(boxStart, cand));
+      if (!ok) break;
+      len += 1;
+    }
+    return len;
+  };
+
+  const movementCost = (a, b) => {
+    const ds = Math.abs(a.sIdx - b.sIdx);
+    const df = Math.abs(a.fret - b.fret);
+    const farStringPenalty = ds > 1 ? (ds - 1) * 7 : 0;
+    const farFretPenalty = df > 4 ? (df - 4) * 2.4 : 0;
+    const sameStringBonus = ds === 0 ? (df <= 1 ? 0.8 : df === 2 ? 0.35 : 0) : 0;
+    return Math.max(0.05, df + 1.25 * ds + farStringPenalty + farFretPenalty - sameStringBonus);
+  };
+
+  const compareCost = (a, b) => {
+    if (!b) return -1;
+    if (a.primary !== b.primary) return a.primary - b.primary;
+    return a.smooth - b.smooth;
+  };
+
+  const addCost = (a, primary, smooth) => ({
+    primary: a.primary + primary,
+    smooth: a.smooth + smooth,
+  });
+
+  const costToNumber = (cost) => Number((cost.primary * 10 + cost.smooth).toFixed(2));
+
+  const encodeKey = (i, sIdx, fret, runCount, fretTrend, boxStart) => `${i}|${sIdx}|${fret}|${runCount}|${fretTrend}|${boxStart}`;
+  const decodeKey = (key) => {
+    const [i, sIdx, fret, runCount, fretTrend, boxStart] = String(key).split("|").map((x) => parseInt(x, 10));
+    return { i, sIdx, fret, runCount, fretTrend, boxStart };
+  };
+
+  const parent = new Map();
+  const posByKey = new Map();
+  const edgeMeta = new Map();
+  let prev = new Map();
+
+  for (const boxStart of boxStartsForFret(startPos.fret)) {
+    const startKey = encodeKey(0, startPos.sIdx, startPos.fret, 1, 0, boxStart);
+    const startCost = {
+      primary: 0,
+      smooth: (Math.abs(startPos.fret - (boxStart + ((width - 1) / 2))) * 0.08) - (futureCoverage(boxStart, 1, 4) * 0.35) - (nextSameStringOptions(boxStart, 1, startPos.sIdx).length * 4),
+    };
+    prev.set(startKey, startCost);
+    parent.set(startKey, null);
+    posByKey.set(startKey, candidates[0][0]);
+  }
+
+  for (let i = 1; i < candidates.length; i++) {
+    const cur = new Map();
+
+    for (const [prevKey, prevCost] of prev.entries()) {
+      const prevInfo = decodeKey(prevKey);
+      const prevPos = posByKey.get(prevKey);
+      const remainingStepsAfter = candidates.length - 1 - i;
+      const currentBoxSameString = candidates[i].filter((cand) => cand.sIdx === prevInfo.sIdx && cellInBox(prevInfo.boxStart, cand));
+      const currentBoxAny = candidates[i].filter((cand) => cellInBox(prevInfo.boxStart, cand));
+      const oldFutureCoverage = futureCoverage(prevInfo.boxStart, i, 4);
+
+      const feasible = [];
+      for (const cand of candidates[i]) {
+        const dsSigned = cand.sIdx - prevInfo.sIdx;
+        const ds = Math.abs(dsSigned);
+        const dfSigned = cand.fret - prevInfo.fret;
+        const df = Math.abs(dfSigned);
+        if (ds > maxStringJump) continue;
+        if (df > maxFretJump) continue;
+        if (Math.abs(endPos.sIdx - cand.sIdx) > remainingStepsAfter) continue;
+        feasible.push({ cand, dsSigned, ds, dfSigned, df });
+      }
+
+      if (!feasible.length) continue;
+
+      const sameStringForward = feasible
+        .filter((item) => item.ds === 0 && item.df <= 3 && (targetFretDir === 0 || item.dfSigned === 0 || Math.sign(item.dfSigned) === targetFretDir))
+        .sort((a, b) => (a.df - b.df) || (corridorDeviation(a.cand.fret) - corridorDeviation(b.cand.fret)) || (Math.abs(endPos.fret - a.cand.fret) - Math.abs(endPos.fret - b.cand.fret)));
+      const bestSameStringForward = sameStringForward[0] || null;
+
+      for (const item of feasible) {
+        const { cand, dsSigned, ds, dfSigned, df } = item;
+        const sameString = ds === 0;
+        const nextRun = sameString ? prevInfo.runCount + 1 : 1;
+        if (nextRun > phrasing.hardLimit) continue;
+
+        const stepTrend = dfSigned === 0 ? 0 : (dfSigned > 0 ? 1 : -1);
+        const nextTrend = stepTrend === 0 ? prevInfo.fretTrend : stepTrend;
+        const overshoot = targetFretDir > 0
+          ? Math.max(0, cand.fret - endPos.fret)
+          : targetFretDir < 0
+            ? Math.max(0, endPos.fret - cand.fret)
+            : 0;
+
+        let boxStarts = boxStartsForFret(cand.fret).filter((boxStart) => cellInBox(boxStart, cand));
+        if (!boxStarts.length) boxStarts = boxStartsForFret(cand.fret);
+
+        const rankedBoxes = boxStarts
+          .map((boxStart) => ({
+            boxStart,
+            futureSameCount: nextSameStringOptions(boxStart, i + 1, cand.sIdx).length,
+            futureCoverage: futureCoverage(boxStart, i + 1, 4),
+          }))
+          .sort((a, b) => (b.futureSameCount - a.futureSameCount) || (b.futureCoverage - a.futureCoverage) || (Math.abs(a.boxStart - prevInfo.boxStart) - Math.abs(b.boxStart - prevInfo.boxStart)));
+
+        const bestFutureSameCount = rankedBoxes.length ? rankedBoxes[0].futureSameCount : 0;
+        const bestFutureCoverage = rankedBoxes.length ? rankedBoxes[0].futureCoverage : 0;
+
+        for (const boxInfo of rankedBoxes) {
+          const { boxStart, futureSameCount, futureCoverage: nextBoxCoverage } = boxInfo;
+          const sameBox = boxStart === prevInfo.boxStart;
+          const center = boxStart + ((width - 1) / 2);
+          let primary = 0;
+          let smooth = 0;
+
+          smooth += movementCost(prevPos, cand);
+
+          if (bestSameStringForward && !sameString && prevInfo.runCount < phrasing.phraseTarget) {
+            primary += 42;
+          }
+
+          if (bestSameStringForward && sameString && cand.sIdx === bestSameStringForward.cand.sIdx && cand.fret === bestSameStringForward.cand.fret) {
+            smooth -= 4.5;
+          }
+
+          if (!sameString && currentBoxSameString.length && prevInfo.runCount < phrasing.phraseTarget) {
+            primary += 24;
+          }
+
+          if (!sameBox && currentBoxAny.length) {
+            primary += oldFutureCoverage >= 2 ? 28 : 18;
+          }
+
+          if (futureSameCount > 0) {
+            smooth -= 1.4 * futureSameCount;
+          } else if (bestFutureSameCount > 0) {
+            primary += 8;
+          }
+
+          if (!sameBox) {
+            const boxShift = Math.abs(boxStart - prevInfo.boxStart);
+            if (boxShift > 3) continue;
+            primary += 4 + (boxShift * 0.9);
+            if (oldFutureCoverage >= 2) primary += 4;
+          } else {
+            smooth -= 0.8;
+          }
+
+          if (prevInfo.fretTrend !== 0 && stepTrend !== 0 && stepTrend !== prevInfo.fretTrend) {
+            if (!(ds === 1 && df <= 2)) primary += 5;
+          }
+
+          if (targetFretDir !== 0 && stepTrend !== 0 && stepTrend !== targetFretDir) {
+            if (!(ds === 1 && df <= 2)) primary += 4.2;
+          }
+
+          if (targetStringDir !== 0 && dsSigned !== 0 && Math.sign(dsSigned) !== targetStringDir) {
+            primary += 0.8;
+          }
+
+          if (nextRun > phrasing.phraseTarget) {
+            primary += (nextRun - phrasing.phraseTarget) * (family === "penta" ? 18 : 7);
+          }
+
+          if (sameString && stepTrend !== 0 && targetFretDir !== 0 && stepTrend === targetFretDir) {
+            smooth -= 1.8;
+          }
+
+          if (ds === 1 && df <= 2) smooth -= 0.9;
+
+          smooth += corridorDeviation(cand.fret) * 0.6;
+          smooth += Math.abs(cand.fret - center) * 0.08;
+          smooth -= nextBoxCoverage * 1.25;
+          smooth -= bestFutureCoverage * 0.15;
+
+          if (overshoot > 0) {
+            const hasNonOvershootingAlternative = feasible.some((x) => {
+              if (targetFretDir > 0) return x.cand.fret <= endPos.fret;
+              if (targetFretDir < 0) return x.cand.fret >= endPos.fret;
+              return true;
+            });
+            primary += overshoot * (remainingStepsAfter <= 2 ? 8 : 3.2);
+            if (hasNonOvershootingAlternative) primary += 10;
+          }
+
+          const sameStringPotential = sameStringChainPotential(boxStart, i, cand.sIdx);
+          if (sameStringPotential > phrasing.phraseTarget) {
+            primary += (sameStringPotential - phrasing.phraseTarget) * (family === "penta" ? 16 : 6);
+          }
+
+          if (remainingStepsAfter <= 2 && futureSameCount > 0 && !sameString) {
+            primary += 7;
+          }
+
+          const totalCost = addCost(prevCost, primary, smooth);
+          const nextKey = encodeKey(i, cand.sIdx, cand.fret, nextRun, nextTrend, boxStart);
+
+          if (!cur.has(nextKey) || compareCost(totalCost, cur.get(nextKey)) < 0) {
+            cur.set(nextKey, totalCost);
+            parent.set(nextKey, prevKey);
+            posByKey.set(nextKey, cand);
+            edgeMeta.set(nextKey, {
+              from: `${prevPos.sIdx + 1}${prevPos.fret}`,
+              to: `${cand.sIdx + 1}${cand.fret}`,
+              sameString,
+              ds,
+              df,
+              runCount: nextRun,
+              corridorDev: Number(corridorDeviation(cand.fret).toFixed(2)),
+              targetSideOvershoot: Number(overshoot.toFixed(2)),
+              hadSameStringForward: !!bestSameStringForward,
+              bestSameStringForwardFret: bestSameStringForward ? bestSameStringForward.cand.fret : null,
+              hadNonOvershootingAlternative: overshoot > 0 && feasible.some((x) => {
+                if (targetFretDir > 0) return x.cand.fret <= endPos.fret;
+                if (targetFretDir < 0) return x.cand.fret >= endPos.fret;
+                return true;
+              }),
+              stepCost: Number((primary * 10 + smooth).toFixed(2)),
+              totalCost: costToNumber(totalCost),
+              templateText: `caja=${boxStart}-${boxStart + width - 1} · caja activa=${sameBox ? "sí" : "no"} · continuidad=${futureSameCount} · cobertura=${nextBoxCoverage}`,
+            });
+          }
+        }
+      }
+    }
+
+    if (!cur.size) return { path: [], cost: null, reason: "No encontré ruta con estas reglas", debugSteps: [] };
+    prev = cur;
+  }
+
+  let bestKey = null;
+  let bestCost = null;
+  for (const [key, cost] of prev.entries()) {
+    const info = decodeKey(key);
+    if (info.sIdx !== endPos.sIdx || info.fret !== endPos.fret) continue;
+    if (!bestCost || compareCost(cost, bestCost) < 0) {
+      bestCost = cost;
+      bestKey = key;
+    }
+  }
+
+  if (!bestKey) return { path: [], cost: null, reason: "No pude terminar exactamente en el destino", debugSteps: [] };
+
+  const path = [];
+  const debugSteps = [];
+  let walk = bestKey;
+  while (walk) {
+    path.push(posByKey.get(walk));
+    if (edgeMeta.has(walk)) debugSteps.push(edgeMeta.get(walk));
+    walk = parent.get(walk);
+  }
+
+  path.reverse();
+  debugSteps.reverse();
+
+  return {
+    path,
+    debugSteps,
+    cost: costToNumber(bestCost),
+    reason: null,
+  };
+}
+
 function computeMusicalRoute({
   rootPc,
   scaleIntervals,
@@ -3784,6 +4829,8 @@ function computeMusicalRoute({
   maxNotesPerString,
   preferNps,
   preferVertical = false,
+  strictFretDirection = false,
+  forcedFretTrend = 0,
   patternInstances,
   instanceMembership,
   preferKeepPattern,
@@ -3850,20 +4897,50 @@ function computeMusicalRoute({
   const parent = new Map();
   const posByKey = new Map();
 
-  // Estado: i|sIdx|fret|consec|instIdx|posStart
-  function key(i, sIdx, fret, consec, instIdx, posStart) {
-    return `${i}|${sIdx}|${fret}|${consec}|${instIdx}|${posStart}`;
+  // Estado: i|sIdx|fret|consec|instIdx|posStart|fretTrend
+  // fretTrend: 0 = aún sin dirección fijada, 1 = subiendo trastes, -1 = bajando trastes.
+  // Aquí la dirección se mide contra la nota anterior, no contra el inicio del bloque,
+  // para que un salto 7 -> 3 cuente como retroceso real.
+  function key(i, sIdx, fret, consec, instIdx, posStart, fretTrend) {
+    return `${i}|${sIdx}|${fret}|${consec}|${instIdx}|${posStart}|${fretTrend}`;
   }
 
   function parseKey(k) {
-    const [i, s, f, c, inst, ps] = k.split("|").map((x) => parseInt(x, 10));
-    return { i, sIdx: s, fret: f, consec: c, instIdx: inst, posStart: ps };
+    const [i, s, f, c, inst, ps, trend] = k.split("|").map((x) => parseInt(x, 10));
+    return { i, sIdx: s, fret: f, consec: c, instIdx: inst, posStart: ps, fretTrend: trend };
   }
 
   function stepFeasible(prevPos, candPos) {
     const df = Math.abs(candPos.fret - prevPos.fret);
     const ds = Math.abs(candPos.sIdx - prevPos.sIdx);
-    return df <= maxFretJumpPerStep && ds <= maxStringJumpPerStep;
+    if (df > maxFretJumpPerStep || ds > maxStringJumpPerStep) return false;
+    return true;
+  }
+
+  function nextFretTrend(prevTrend, prevPos, candPos) {
+    if (forcedFretTrend === 1 || forcedFretTrend === -1) return forcedFretTrend;
+    const signedDf = candPos.fret - prevPos.fret;
+    if (signedDf === 0) return prevTrend;
+    const stepTrend = signedDf > 0 ? 1 : -1;
+    return prevTrend === 0 ? stepTrend : prevTrend;
+  }
+
+  function strictTrendFeasible(prevTrend, prevPos, candPos) {
+    if (!strictFretDirection) return true;
+    const signedDf = candPos.fret - prevPos.fret;
+    if (signedDf === 0) return true;
+    const stepTrend = signedDf > 0 ? 1 : -1;
+    const targetTrend = (forcedFretTrend === 1 || forcedFretTrend === -1) ? forcedFretTrend : prevTrend;
+    return targetTrend === 0 || stepTrend === targetTrend;
+  }
+
+  function trendReversalPenalty(prevTrend, prevPos, candPos) {
+    if (strictFretDirection) return 0;
+    const signedDf = candPos.fret - prevPos.fret;
+    if (signedDf === 0) return 0;
+    const stepTrend = signedDf > 0 ? 1 : -1;
+    if (prevTrend === 0 || stepTrend === prevTrend) return 0;
+    return 12 + 2.5 * Math.abs(signedDf);
   }
 
   let prev = new Map();
@@ -3879,7 +4956,7 @@ function computeMusicalRoute({
   for (const instIdx of startInsts.length ? startInsts : [0]) {
     for (const ps of startPosStarts) {
       if (routeMode === "pos" && !inWindow(ps, startPos.fret)) continue;
-      const k = key(0, startPos.sIdx, startPos.fret, 1, instIdx, ps);
+      const k = key(0, startPos.sIdx, startPos.fret, 1, instIdx, ps, 0);
       {
       const anchor = patternInstances?.[instIdx]?.anchorFret ?? startPos.fret;
       const initCost = routeMode === "free" ? 0 : initAnchorPenalty * Math.abs(anchor - startPos.fret);
@@ -3906,6 +4983,7 @@ function computeMusicalRoute({
           const newConsec = sameString ? prevInfo.consec + 1 : 1;
           if (newConsec > maxNotesPerString) continue;
           if (!stepFeasible(prevPos, cand)) continue;
+          if (!strictTrendFeasible(prevInfo.fretTrend, prevPos, cand)) continue;
 
           const cellKey = `${cand.sIdx}:${cand.fret}`;
           const insts = allowedInstancesForCell(cellKey);
@@ -3964,6 +5042,7 @@ function computeMusicalRoute({
         const newConsec = sameString ? prevInfo.consec + 1 : 1;
         if (newConsec > maxNotesPerString) continue;
         if (!stepFeasible(prevPos, cand)) continue;
+        if (!strictTrendFeasible(prevInfo.fretTrend, prevPos, cand)) continue;
 
         const cellKey = `${cand.sIdx}:${cand.fret}`;
         const instsAll = allowedInstancesForCell(cellKey);
@@ -3975,6 +5054,7 @@ function computeMusicalRoute({
         const baseMove = movementCost(prevPos, cand);
         // Si quieres ruta "vertical" (cambiar cuerda) no penalizamos cambios de cuerda por NPS.
         const npsPenalty = preferNps && !preferVertical && !sameString && prevInfo.consec < npsTarget ? 2.2 : 0;
+        const reversalPenalty = trendReversalPenalty(prevInfo.fretTrend, prevPos, cand);
 
         // Preferir verticalidad: penaliza quedarse en la misma cuerda, premia cambio de cuerda cercano.
         const dsStep = Math.abs(cand.sIdx - prevInfo.sIdx);
@@ -4009,8 +5089,16 @@ function computeMusicalRoute({
             }
             }
 
-            const nk = key(i, cand.sIdx, cand.fret, newConsec, instIdx, psNew);
-            const cost = pcost + baseMove + npsPenalty + switchPenalty + posCost + verticalPenalty - verticalBonus;
+            const nk = key(
+              i,
+              cand.sIdx,
+              cand.fret,
+              newConsec,
+              instIdx,
+              psNew,
+              nextFretTrend(prevInfo.fretTrend, prevPos, cand)
+            );
+            const cost = pcost + baseMove + npsPenalty + reversalPenalty + switchPenalty + posCost + verticalPenalty - verticalBonus;
 
             if (!cur.has(nk) || cost < cur.get(nk)) {
               cur.set(nk, cost);
@@ -4022,7 +5110,15 @@ function computeMusicalRoute({
       }
     }
 
-    if (!cur.size) return { path: [], cost: null, reason: "No encontré ruta con estos límites/patrones" };
+    if (!cur.size) {
+      return {
+        path: [],
+        cost: null,
+        reason: strictFretDirection
+          ? "No encontré ruta estricta con estos límites"
+          : "No encontré ruta con estos límites/patrones",
+      };
+    }
     prev = cur;
   }
 
@@ -4050,6 +5146,226 @@ function computeMusicalRoute({
   path.reverse();
 
   return { path, cost: bestCost, reason: null };
+}
+
+const STAFF_LETTER_INDEX = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
+
+function midiToSpelledPitch(midi, preferSharps) {
+  const pc = mod12(midi);
+  const name = pcToName(pc, preferSharps);
+  const letter = name[0] || "C";
+  const accidentalRaw = name.slice(1);
+  const accidental = accidentalRaw === "#" ? "♯" : accidentalRaw === "b" ? "♭" : accidentalRaw;
+  const octave = Math.floor(midi / 12) - 1;
+  return { midi, name, letter, accidental, octave };
+}
+
+function staffStepFromPitch(spelled, clef) {
+  const baseOctave = clef === "bass" ? 2 : 4;
+  const baseLetter = clef === "bass" ? "G" : "E";
+  const diatonic = (spelled.octave * 7) + STAFF_LETTER_INDEX[spelled.letter];
+  const base = (baseOctave * 7) + STAFF_LETTER_INDEX[baseLetter];
+  return diatonic - base;
+}
+
+function staffYFromStep(step, top, lineGap) {
+  return top + (lineGap * 4) - (step * (lineGap / 2));
+}
+
+function ledgerLineSteps(step) {
+  const out = [];
+  if (step < 0) {
+    for (let s = 0; s >= step; s -= 2) out.push(s);
+  } else if (step > 8) {
+    for (let s = 8; s <= step; s += 2) out.push(s);
+  }
+  return out.filter((s) => s < 0 || s > 8);
+}
+
+function resolveStaffSpec(events, clefMode) {
+  if (clefMode === "treble") return { clef: "treble", transpose: 0 };
+  if (clefMode === "bass") return { clef: "bass", transpose: 0 };
+  if (clefMode === "guitar") return { clef: "treble", transpose: 12 };
+
+  const midis = (events || []).flatMap((evt) => Array.isArray(evt?.notes) ? evt.notes : []);
+  const avg = midis.length ? midis.reduce((a, b) => a + b, 0) / midis.length : 60;
+  return avg < 54 ? { clef: "bass", transpose: 0 } : { clef: "treble", transpose: 0 };
+}
+
+const TREBLE_KEY_SIGNATURE_STEPS = {
+  sharp: [8, 5, 9, 6, 3, 7, 4],
+  flat: [4, 7, 3, 6, 2, 5, 8],
+};
+
+const BASS_KEY_SIGNATURE_STEPS = {
+  sharp: [6, 3, 7, 4, 1, 5, 2],
+  flat: [2, 5, 1, 4, 0, 3, 6],
+};
+
+function keySignatureStepsForClef(clef, type) {
+  return clef === "bass" ? BASS_KEY_SIGNATURE_STEPS[type] || [] : TREBLE_KEY_SIGNATURE_STEPS[type] || [];
+}
+
+const KEY_SIGNATURE_LETTER_ORDER = {
+  sharp: ["F", "C", "G", "D", "A", "E", "B"],
+  flat: ["B", "E", "A", "D", "G", "C", "F"],
+};
+
+function keySignatureLetterAccidentals(keySignature) {
+  const type = keySignature?.type || null;
+  const count = Math.max(0, Math.min(7, Number(keySignature?.count) || 0));
+  const map = new Map();
+  if (!type || !count) return map;
+
+  const letters = KEY_SIGNATURE_LETTER_ORDER[type] || [];
+  const accidental = type === "sharp" ? "♯" : "♭";
+  letters.slice(0, count).forEach((letter) => map.set(letter, accidental));
+  return map;
+}
+
+function displayedAccidentalForNote(note, signatureMap) {
+  const keyAccidental = signatureMap?.get(note.letter) || "";
+  const noteAccidental = note.accidental || "";
+  if (noteAccidental === keyAccidental) return "";
+  if (!noteAccidental && keyAccidental) return "♮";
+  return noteAccidental;
+}
+
+function MusicStaff({ events, preferSharps, clefMode = "guitar", beatsPerBar = 4, beatUnit = 4, keySignature = null }) {
+  const safeEvents = Array.isArray(events) ? events.filter((evt) => Array.isArray(evt?.notes) && evt.notes.length) : [];
+  if (!safeEvents.length) return null;
+
+  const { clef, transpose } = resolveStaffSpec(safeEvents, clefMode);
+  const lineGap = 12;
+  const staffTop = 28;
+  const signatureType = keySignature?.type || null;
+  const signatureCount = Math.max(0, Math.min(7, Number(keySignature?.count) || 0));
+  const signatureGlyph = signatureType === "sharp" ? "♯" : signatureType === "flat" ? "♭" : "";
+  const signatureSteps = signatureType ? keySignatureStepsForClef(clef, signatureType).slice(0, signatureCount) : [];
+  const signatureWidth = signatureSteps.length ? (signatureSteps.length * 11) + 8 : 0;
+  const signatureMap = keySignatureLetterAccidentals(keySignature);
+  const idealNoteSpacing = 38;
+  const minNoteSpacing = 24;
+  const targetInnerWidth = 880;
+  const eventCount = Math.max(1, safeEvents.length);
+  const noteSpacing = Math.max(minNoteSpacing, Math.min(idealNoteSpacing, targetInnerWidth / Math.max(eventCount, beatsPerBar)));
+  const measureWidth = noteSpacing * beatsPerBar;
+  const leftPad = 86 + signatureWidth;
+  const rightPad = 24;
+  const measures = Math.max(1, Math.ceil(safeEvents.length / beatsPerBar));
+  const width = leftPad + (measures * measureWidth) + rightPad;
+  const staffBottom = staffTop + (lineGap * 4);
+  const clefGlyph = clef === "bass" ? "𝄢" : "𝄞";
+
+  const renderedEvents = safeEvents.map((evt, idx) => {
+    const measureIdx = Math.floor(idx / beatsPerBar);
+    const beatIdx = idx % beatsPerBar;
+    const x = leftPad + (measureIdx * measureWidth) + 22 + (beatIdx * noteSpacing);
+    const notes = evt.notes
+      .map((midi) => midiToSpelledPitch(midi + transpose, preferSharps))
+      .map((spelled) => {
+        const step = staffStepFromPitch(spelled, clef);
+        const displayAccidental = displayedAccidentalForNote(spelled, signatureMap);
+        return { ...spelled, step, displayAccidental };
+      })
+      .sort((a, b) => a.step - b.step);
+    const avgStep = notes.reduce((sum, note) => sum + note.step, 0) / notes.length;
+    const stemDown = avgStep >= 4;
+    return { x, notes, stemDown };
+  });
+
+  const verticalExtents = renderedEvents.flatMap((evt) => {
+    if (!evt.notes.length) return [];
+    const stemNote = evt.stemDown ? evt.notes[0] : evt.notes[evt.notes.length - 1];
+    const stemY = staffYFromStep(stemNote.step, staffTop, lineGap);
+    const stemEndY = evt.stemDown ? stemY + 30 : stemY - 30;
+
+    return evt.notes.map((note) => {
+      const y = staffYFromStep(note.step, staffTop, lineGap);
+      const ledgerYs = ledgerLineSteps(note.step).map((step) => staffYFromStep(step, staffTop, lineGap));
+      const ledgerTop = ledgerYs.length ? Math.min(...ledgerYs) - 2 : y - 7;
+      const ledgerBottom = ledgerYs.length ? Math.max(...ledgerYs) + 2 : y + 7;
+      const noteTop = y - 7;
+      const noteBottom = y + 7;
+      const accidentalTop = note.displayAccidental ? y - 10 : noteTop;
+      const accidentalBottom = note.displayAccidental ? y + 6 : noteBottom;
+      return {
+        top: Math.min(noteTop, ledgerTop, accidentalTop, stemY, stemEndY),
+        bottom: Math.max(noteBottom, ledgerBottom, accidentalBottom, stemY, stemEndY),
+      };
+    });
+  });
+
+  const contentTop = verticalExtents.length ? Math.min(staffTop - 12, ...verticalExtents.map((x) => x.top)) - 8 : staffTop - 20;
+  const contentBottom = verticalExtents.length ? Math.max(staffBottom + 12, ...verticalExtents.map((x) => x.bottom)) + 8 : staffBottom + 20;
+  const height = Math.max(132, contentBottom - contentTop);
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white px-2 py-2">
+      <svg
+        width={width}
+        height={height}
+        viewBox={`0 ${contentTop} ${width} ${height}`}
+        className="block"
+        role="img"
+        aria-label="Pentagrama en 4 por 4 con la ruta en negras"
+      >
+        {[0, 1, 2, 3, 4].map((line) => {
+          const y = staffTop + (line * lineGap);
+          return <line key={line} x1={16} y1={y} x2={width - 12} y2={y} stroke="#475569" strokeWidth="1" />;
+        })}
+
+        {Array.from({ length: measures - 1 }, (_, i) => {
+          const x = leftPad + ((i + 1) * measureWidth);
+          return <line key={i} x1={x} y1={staffTop - 1} x2={x} y2={staffBottom + 1} stroke="#475569" strokeWidth="1" />;
+        })}
+
+        <line x1={16} y1={staffTop - 1} x2={16} y2={staffBottom + 1} stroke="#475569" strokeWidth="1" />
+        <line x1={width - 12} y1={staffTop - 1} x2={width - 12} y2={staffBottom + 1} stroke="#475569" strokeWidth="1.5" />
+
+        <text x="30" y={clef === "bass" ? staffTop + 37 : staffTop + 42} fontSize={clef === "bass" ? "34" : "42"} fill="#0f172a">
+          {clefGlyph}
+        </text>
+
+        {signatureSteps.map((step, idx) => {
+          const x = 58 + (idx * 11);
+          const y = staffYFromStep(step, staffTop, lineGap) + 4;
+          return <text key={`${signatureType}-${idx}`} x={x} y={y} fontSize="18" fill="#0f172a">{signatureGlyph}</text>;
+        })}
+
+        <text x={62 + signatureWidth} y={staffTop + 16} fontSize="16" fontWeight="700" fill="#0f172a">{beatsPerBar}</text>
+        <text x={62 + signatureWidth} y={staffTop + 38} fontSize="16" fontWeight="700" fill="#0f172a">{beatUnit}</text>
+
+        {renderedEvents.map((evt, evtIdx) => (
+          <g key={evtIdx}>
+            {evt.notes.map((note, noteIdx) => {
+              const y = staffYFromStep(note.step, staffTop, lineGap);
+              const lines = ledgerLineSteps(note.step);
+              return (
+                <g key={noteIdx}>
+                  {lines.map((step) => {
+                    const ly = staffYFromStep(step, staffTop, lineGap);
+                    return <line key={step} x1={evt.x - 10} y1={ly} x2={evt.x + 10} y2={ly} stroke="#475569" strokeWidth="1" />;
+                  })}
+                  {note.displayAccidental ? <text x={evt.x - 18} y={y + 4} fontSize="14" fill="#0f172a">{note.displayAccidental}</text> : null}
+                  <ellipse cx={evt.x} cy={y} rx="6.8" ry="5.1" transform={`rotate(-20 ${evt.x} ${y})`} fill="#0f172a" />
+                </g>
+              );
+            })}
+
+            {evt.notes.length ? (() => {
+              const stemNote = evt.stemDown ? evt.notes[0] : evt.notes[evt.notes.length - 1];
+              const stemY = staffYFromStep(stemNote.step, staffTop, lineGap);
+              const x = evt.stemDown ? evt.x - 6 : evt.x + 6;
+              const y1 = stemY;
+              const y2 = evt.stemDown ? stemY + 30 : stemY - 30;
+              return <line x1={x} y1={y1} x2={x} y2={y2} stroke="#0f172a" strokeWidth="1.4" />;
+            })() : null}
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
 }
 
 // ============================================================================
@@ -4395,12 +5711,23 @@ export default function FretboardScalesPage() {
   // --------------------------------------------------------------------------
 
   // Ruta
+  const [routeLabStartCode, setRouteLabStartCode] = useState("61");
+  const [routeLabEndCode, setRouteLabEndCode] = useState("113");
+  const [routeLabMaxPerString, setRouteLabMaxPerString] = useState(4);
+  const [routeLabPickNext, setRouteLabPickNext] = useState("start");
+  const [routeLabSwitchWhenSameStringForwardPenalty, setRouteLabSwitchWhenSameStringForwardPenalty] = useState(ROUTE_LAB_DEFAULT_TUNING.switchWhenSameStringForwardPenalty);
+  const [routeLabWorseThanSameStringGoalBase, setRouteLabWorseThanSameStringGoalBase] = useState(ROUTE_LAB_DEFAULT_TUNING.worseThanSameStringGoalBase);
+  const [routeLabWorseThanSameStringGoalScale, setRouteLabWorseThanSameStringGoalScale] = useState(ROUTE_LAB_DEFAULT_TUNING.worseThanSameStringGoalScale);
+  const [routeLabCorridorPenalty, setRouteLabCorridorPenalty] = useState(ROUTE_LAB_DEFAULT_TUNING.corridorPenalty);
+  const [routeLabOvershootNearEndAlt, setRouteLabOvershootNearEndAlt] = useState(ROUTE_LAB_DEFAULT_TUNING.overshootNearEndAlt);
+
   const [routeStartCode, setRouteStartCode] = useState("61");
   const [routeEndCode, setRouteEndCode] = useState("113");
   const [routeMaxPerString, setRouteMaxPerString] = useState(4);
   const [routeMode, setRouteMode] = useState("auto"); // auto | free | penta | nps | pos
   const [routePreferNps, setRoutePreferNps] = useState(true);
   const [routePreferVertical, setRoutePreferVertical] = useState(false);
+  const [routeStrictFretDirection, setRouteStrictFretDirection] = useState(false);
   const [routeKeepPattern, setRouteKeepPattern] = useState(false);
   const [allowPatternSwitch, setAllowPatternSwitch] = useState(true);
   const [patternSwitchPenalty, setPatternSwitchPenalty] = useState(2.0);
@@ -4484,9 +5811,26 @@ export default function FretboardScalesPage() {
     routeStartCode,
     routeEndCode,
     routeMaxPerString,
+    routeLabStartCode,
+    routeLabEndCode,
+    routeLabMaxPerString,
+    routeLabSwitchWhenSameStringForwardPenalty,
+    routeLabWorseThanSameStringGoalBase,
+    routeLabWorseThanSameStringGoalScale,
+    routeLabCorridorPenalty,
+    routeLabOvershootNearEndAlt,
+    routeLabStartCode,
+    routeLabEndCode,
+    routeLabMaxPerString,
+    routeLabSwitchWhenSameStringForwardPenalty,
+    routeLabWorseThanSameStringGoalBase,
+    routeLabWorseThanSameStringGoalScale,
+    routeLabCorridorPenalty,
+    routeLabOvershootNearEndAlt,
     routeMode,
     routePreferNps,
     routePreferVertical,
+    routeStrictFretDirection,
     routeKeepPattern,
     allowPatternSwitch,
     patternSwitchPenalty,
@@ -4541,6 +5885,7 @@ export default function FretboardScalesPage() {
     routeMode,
     routePreferNps,
     routePreferVertical,
+    routeStrictFretDirection,
     routeKeepPattern,
     allowPatternSwitch,
     patternSwitchPenalty,
@@ -4673,9 +6018,18 @@ export default function FretboardScalesPage() {
       if ("routeStartCode" in saved && typeof saved.routeStartCode === "string") setRouteStartCode(saved.routeStartCode);
       if ("routeEndCode" in saved && typeof saved.routeEndCode === "string") setRouteEndCode(saved.routeEndCode);
       if ("routeMaxPerString" in saved) setRouteMaxPerString(sanitizeNumberValue(saved.routeMaxPerString, 4, 1, 5));
+      if ("routeLabStartCode" in saved && typeof saved.routeLabStartCode === "string") setRouteLabStartCode(saved.routeLabStartCode);
+      if ("routeLabEndCode" in saved && typeof saved.routeLabEndCode === "string") setRouteLabEndCode(saved.routeLabEndCode);
+      if ("routeLabMaxPerString" in saved) setRouteLabMaxPerString(sanitizeNumberValue(saved.routeLabMaxPerString, 4, 1, 5));
+      if ("routeLabSwitchWhenSameStringForwardPenalty" in saved) setRouteLabSwitchWhenSameStringForwardPenalty(sanitizeNumberValue(saved.routeLabSwitchWhenSameStringForwardPenalty, ROUTE_LAB_DEFAULT_TUNING.switchWhenSameStringForwardPenalty, 0, 12));
+      if ("routeLabWorseThanSameStringGoalBase" in saved) setRouteLabWorseThanSameStringGoalBase(sanitizeNumberValue(saved.routeLabWorseThanSameStringGoalBase, ROUTE_LAB_DEFAULT_TUNING.worseThanSameStringGoalBase, 0, 12));
+      if ("routeLabWorseThanSameStringGoalScale" in saved) setRouteLabWorseThanSameStringGoalScale(sanitizeNumberValue(saved.routeLabWorseThanSameStringGoalScale, ROUTE_LAB_DEFAULT_TUNING.worseThanSameStringGoalScale, 0, 6));
+      if ("routeLabCorridorPenalty" in saved) setRouteLabCorridorPenalty(sanitizeNumberValue(saved.routeLabCorridorPenalty, ROUTE_LAB_DEFAULT_TUNING.corridorPenalty, 0, 4));
+      if ("routeLabOvershootNearEndAlt" in saved) setRouteLabOvershootNearEndAlt(sanitizeNumberValue(saved.routeLabOvershootNearEndAlt, ROUTE_LAB_DEFAULT_TUNING.overshootNearEndAlt, 0, 16));
       if ("routeMode" in saved) setRouteMode(sanitizeOneOf(saved.routeMode, ["auto", "free", "pos", "nps", "penta", "caged"], "auto"));
       if ("routePreferNps" in saved) setRoutePreferNps(sanitizeBoolValue(saved.routePreferNps, true));
       if ("routePreferVertical" in saved) setRoutePreferVertical(sanitizeBoolValue(saved.routePreferVertical, false));
+      if ("routeStrictFretDirection" in saved) setRouteStrictFretDirection(sanitizeBoolValue(saved.routeStrictFretDirection, false));
       if ("routeKeepPattern" in saved) setRouteKeepPattern(sanitizeBoolValue(saved.routeKeepPattern, false));
       if ("allowPatternSwitch" in saved) setAllowPatternSwitch(sanitizeBoolValue(saved.allowPatternSwitch, true));
       if ("patternSwitchPenalty" in saved) setPatternSwitchPenalty(sanitizeNumberValue(saved.patternSwitchPenalty, 2, 0, 6));
@@ -4800,6 +6154,14 @@ export default function FretboardScalesPage() {
       window.location.reload();
     } catch {
     }
+  }
+
+  function resetRouteLabTuning() {
+    setRouteLabSwitchWhenSameStringForwardPenalty(ROUTE_LAB_DEFAULT_TUNING.switchWhenSameStringForwardPenalty);
+    setRouteLabWorseThanSameStringGoalBase(ROUTE_LAB_DEFAULT_TUNING.worseThanSameStringGoalBase);
+    setRouteLabWorseThanSameStringGoalScale(ROUTE_LAB_DEFAULT_TUNING.worseThanSameStringGoalScale);
+    setRouteLabCorridorPenalty(ROUTE_LAB_DEFAULT_TUNING.corridorPenalty);
+    setRouteLabOvershootNearEndAlt(ROUTE_LAB_DEFAULT_TUNING.overshootNearEndAlt);
   }
 
   function saveQuickPreset(slotIdx) {
@@ -5531,6 +6893,7 @@ export default function FretboardScalesPage() {
   function applyDetectedCandidate(candidate) {
     if (!candidate) return;
     setChordDetectCandidateId(candidate.id);
+    setStudyTarget("main");
     if (candidate.uiPatch) {
       const p = candidate.uiPatch;
       setChordRootPc(p.rootPc);
@@ -5569,6 +6932,23 @@ export default function FretboardScalesPage() {
       .map((n) => buildDetectedCandidateNoteNameForPc(n.pc, chordDetectSelectedCandidate, chordPreferSharps))
       .join(", "),
     [chordDetectSelectedNotes, chordDetectSelectedCandidate, chordPreferSharps]
+  );
+
+  const chordDetectStaffEvents = useMemo(
+    () => chordDetectSelectedNotes.length
+      ? [{ notes: [...chordDetectSelectedNotes].sort((a, b) => a.pitch - b.pitch).map((n) => n.pitch) }]
+      : [],
+    [chordDetectSelectedNotes]
+  );
+
+  const chordDetectSelectionPositionsText = useMemo(
+    () => chordDetectSelectedNotes.length
+      ? [...chordDetectSelectedNotes]
+          .sort((a, b) => a.pitch - b.pitch)
+          .map((n) => `${n.sIdx + 1}ª/${n.fret}`)
+          .join(" · ")
+      : "",
+    [chordDetectSelectedNotes]
   );
 
   const chordBaseDisplayName = chordDetectMode && chordDetectSelectedCandidate
@@ -5942,19 +7322,33 @@ export default function FretboardScalesPage() {
 
   const studyData = useMemo(() => {
     if (studyTarget === "main") {
-      const mainSpelledNotes = spellChordNotes({ rootPc: chordRootPc, chordIntervals, preferSharps: chordPreferSharps });
+      const detectCandidate = chordDetectMode ? chordDetectSelectedCandidate : null;
+      const mainRootPc = detectCandidate?.rootPc ?? chordRootPc;
+      const mainPreferSharps = detectCandidate?.preferSharps ?? chordPreferSharps;
+      const mainIntervals = detectCandidate?.formula?.intervals?.length
+        ? detectCandidate.formula.intervals.map(mod12)
+        : chordIntervals;
+      const mainDegreeLabels = detectCandidate?.formula?.degreeLabels?.length === mainIntervals.length
+        ? detectCandidate.formula.degreeLabels
+        : null;
+      const mainSpelledNotes = spellChordNotes({ rootPc: mainRootPc, chordIntervals: mainIntervals, preferSharps: mainPreferSharps });
       const mainPcToSpelledName = (pc) => {
-        const interval = mod12(pc - chordRootPc);
-        const idx = chordIntervals.findIndex((x) => mod12(x) === interval);
-        return idx >= 0 ? mainSpelledNotes[idx] : pcToName(pc, chordPreferSharps);
+        const interval = mod12(pc - mainRootPc);
+        const idx = mainIntervals.findIndex((x) => mod12(x) === interval);
+        return idx >= 0 ? mainSpelledNotes[idx] : pcToName(pc, mainPreferSharps);
       };
+      const manualStudyVoicing = detectCandidate
+        ? buildManualSelectionVoicing(chordDetectSelectedNotes, mainRootPc, maxFret)
+        : null;
+      const currentMainVoicing = manualStudyVoicing || activeChordVoicing;
+
       return {
-        rootPc: chordRootPc,
-        preferSharps: chordPreferSharps,
+        rootPc: mainRootPc,
+        preferSharps: mainPreferSharps,
         title: "Acorde principal",
-        chordName: chordDisplayNameFromUI({
-          rootPc: chordRootPc,
-          preferSharps: chordPreferSharps,
+        chordName: detectCandidate?.name || chordDisplayNameFromUI({
+          rootPc: mainRootPc,
+          preferSharps: mainPreferSharps,
           quality: chordQuality,
           suspension: chordSuspension,
           structure: chordStructure,
@@ -5965,11 +7359,13 @@ export default function FretboardScalesPage() {
           ext13: chordExt13,
         }),
         notes: mainSpelledNotes,
-        intervals: chordIntervals.map((i) => intervalToChordToken(i, { ext6: chordExt6, ext9: chordExt9 && chordStructure !== "triad", ext11: chordExt11 && chordStructure !== "triad", ext13: chordExt13 && chordStructure !== "triad" })),
+        intervals: mainDegreeLabels || mainIntervals.map((i) => intervalToChordToken(i, { ext6: chordExt6, ext9: chordExt9 && chordStructure !== "triad", ext11: chordExt11 && chordStructure !== "triad", ext13: chordExt13 && chordStructure !== "triad" })),
         plan: chordEnginePlan,
-        voicing: activeChordVoicing,
-        bassName: activeChordVoicing ? mainPcToSpelledName(activeChordVoicing.bassPc) : pcToName(chordBassPc, chordPreferSharps),
-        inversionLabel: CHORD_INVERSIONS.find((x) => x.value === chordInversion)?.label || "Fundamental",
+        voicing: currentMainVoicing,
+        bassName: currentMainVoicing ? mainPcToSpelledName(currentMainVoicing.bassPc) : pcToName(chordBassPc, mainPreferSharps),
+        inversionLabel: currentMainVoicing
+          ? actualInversionLabelFromVoicing(chordEnginePlan, currentMainVoicing)
+          : CHORD_INVERSIONS.find((x) => x.value === chordInversion)?.label || "Fundamental",
       };
     }
 
@@ -6012,7 +7408,7 @@ export default function FretboardScalesPage() {
       bassName: voicing ? pcToName(voicing.bassPc, pref) : pcToName(mod12((slot?.rootPc || 0) + (plan?.bassInterval || 0)), pref),
       inversionLabel: CHORD_INVERSIONS.find((x) => x.value === (slot?.inversion || "root"))?.label || "Fundamental",
     };
-  }, [studyTarget, chordRootPc, chordPreferSharps, chordQuality, chordSuspension, chordStructure, chordExt7, chordExt6, chordExt9, chordExt11, chordExt13, chordIntervals, chordEnginePlan, activeChordVoicing, chordBassPc, chordInversion, nearSlots, nearComputed]);
+  }, [studyTarget, chordDetectMode, chordDetectSelectedCandidate, chordDetectSelectedNotes, chordRootPc, chordPreferSharps, chordQuality, chordSuspension, chordStructure, chordExt7, chordExt6, chordExt9, chordExt11, chordExt13, chordIntervals, chordEnginePlan, activeChordVoicing, chordBassPc, chordInversion, maxFret, nearSlots, nearComputed]);
 
   // --------------------------------------------------------------------------
   // COMPONENTES UI INTERNOS: PANEL DE ESTUDIO
@@ -6032,6 +7428,15 @@ export default function FretboardScalesPage() {
     });
     const dominant = buildDominantInfo(d?.rootPc ?? chordRootPc, d?.preferSharps ?? chordPreferSharps);
     const backdoorDominant = buildBackdoorDominantInfo(d?.rootPc ?? chordRootPc, d?.preferSharps ?? chordPreferSharps);
+    const studyStaffEvents = d?.voicing?.notes?.length
+      ? [{ notes: [...d.voicing.notes].sort((a, b) => pitchAt(a.sIdx, a.fret) - pitchAt(b.sIdx, b.fret)).map((n) => pitchAt(n.sIdx, n.fret)) }]
+      : [];
+    const studyVoicingPositionsText = d?.voicing?.notes?.length
+      ? [...d.voicing.notes]
+          .sort((a, b) => pitchAt(a.sIdx, a.fret) - pitchAt(b.sIdx, b.fret))
+          .map((n) => `${n.sIdx + 1}ª/${n.fret}`)
+          .join(" · ")
+      : "";
     return (
       <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -6045,7 +7450,8 @@ export default function FretboardScalesPage() {
         </div>
 
         {studyOpen ? (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="text-xs font-semibold text-slate-700">Identidad</div>
               <div className="mt-2 space-y-1 text-xs text-slate-600">
@@ -6129,7 +7535,25 @@ export default function FretboardScalesPage() {
                 {rules.length ? rules.map((r, i) => <div key={i}>• {r}</div>) : <div>• Sin restricciones especiales.</div>}
               </div>
             </div>
-          </div>
+
+            {studyStaffEvents.length ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-xs font-semibold text-slate-700">Pentagrama del voicing real</div>
+                <div className="mt-1 text-xs text-slate-600">
+                  Notas según cuerdas y trastes reales del voicing actual: {studyVoicingPositionsText}
+                </div>
+                <div className="mt-2">
+                  <MusicStaff
+                    events={studyStaffEvents}
+                    preferSharps={d?.preferSharps ?? chordPreferSharps}
+                    clefMode="guitar"
+                    keySignature={{ type: null, count: 0 }}
+                  />
+                </div>
+              </div>
+            ) : null}
+            </div>
+          </>
         ) : null}
       </section>
     );
@@ -6572,6 +7996,88 @@ export default function FretboardScalesPage() {
   }
 
   // Ruta
+  const routeLabStartPos = useMemo(() => parsePosCode(routeLabStartCode), [routeLabStartCode]);
+  const routeLabEndPos = useMemo(() => parsePosCode(routeLabEndCode), [routeLabEndCode]);
+
+  const routeLabCurrentTuning = useMemo(() => ({
+    ...ROUTE_LAB_DEFAULT_TUNING,
+    switchWhenSameStringForwardPenalty: routeLabSwitchWhenSameStringForwardPenalty,
+    worseThanSameStringGoalBase: routeLabWorseThanSameStringGoalBase,
+    worseThanSameStringGoalScale: routeLabWorseThanSameStringGoalScale,
+    corridorPenalty: routeLabCorridorPenalty,
+    overshootNearEndAlt: routeLabOvershootNearEndAlt,
+  }), [
+    routeLabSwitchWhenSameStringForwardPenalty,
+    routeLabWorseThanSameStringGoalBase,
+    routeLabWorseThanSameStringGoalScale,
+    routeLabCorridorPenalty,
+    routeLabOvershootNearEndAlt,
+  ]);
+
+  const routeLabResult = useMemo(() => computeRouteLab({
+    rootPc,
+    scaleName,
+    scaleIntervals,
+    maxFret,
+    startPos: routeLabStartPos,
+    endPos: routeLabEndPos,
+    maxNotesPerString: routeLabMaxPerString,
+    tuning: routeLabCurrentTuning,
+  }), [
+    rootPc,
+    scaleName,
+    scaleIntervals,
+    maxFret,
+    routeLabStartPos,
+    routeLabEndPos,
+    routeLabMaxPerString,
+    routeLabCurrentTuning,
+  ]);
+
+  const routeLabIndexByCell = useMemo(() => {
+    const m = new Map();
+    routeLabResult.path.forEach((n, i) => m.set(`${n.sIdx}:${n.fret}`, i + 1));
+    return m;
+  }, [routeLabResult.path]);
+
+  const routeLabText = useMemo(
+    () => routeLabResult.path.map((n) => `${n.sIdx + 1}${n.fret}`).join(" → "),
+    [routeLabResult.path]
+  );
+
+  const routeKeySignature = useMemo(
+    () => resolveKeySignatureForScale({ rootPc, scaleName }),
+    [rootPc, scaleName]
+  );
+
+  const routeStaffEvents = useMemo(
+    () => routeLabResult.path.map((n) => ({ notes: [pitchAt(n.sIdx, n.fret)] })),
+    [routeLabResult.path]
+  );
+
+  const routeLabDebugLines = useMemo(() => {
+    return (routeLabResult.debugSteps || []).map((step, idx) => {
+      const chunks = [];
+      chunks.push(`${idx + 1}. ${step.from} → ${step.to}`);
+      chunks.push(step.sameString ? `misma cuerda · ${step.df} trastes` : `cambio cuerda ${step.ds} · ${step.df} trastes`);
+      chunks.push(`bloque=${step.runCount}`);
+      chunks.push(`corredor=${step.corridorDev}`);
+      if (step.targetSideOvershoot > 0) chunks.push(`overshoot objetivo=${step.targetSideOvershoot}`);
+      if (step.hadSameStringForward && step.bestSameStringForwardFret != null && !step.sameString) {
+        chunks.push(`había opción misma cuerda hacia traste ${step.bestSameStringForwardFret}`);
+      }
+      if (step.hadNonOvershootingAlternative && step.targetSideOvershoot > 0) {
+        chunks.push(`había alternativa sin pasarse del objetivo`);
+      }
+      if (step.templateText) {
+        chunks.push(step.templateText);
+      }
+      chunks.push(`coste paso=${step.stepCost}`);
+      chunks.push(`coste acumulado=${step.totalCost}`);
+      return chunks.join(" · ");
+    });
+  }, [routeLabResult.debugSteps]);
+
   const startPos = useMemo(() => parsePosCode(routeStartCode), [routeStartCode]);
   const endPos = useMemo(() => parsePosCode(routeEndCode), [routeEndCode]);
 
@@ -6634,7 +8140,7 @@ export default function FretboardScalesPage() {
         internalMode = "free";
       }
 
-      const args = {
+      const baseArgs = {
         rootPc,
         scaleIntervals,
         maxFret,
@@ -6647,6 +8153,7 @@ export default function FretboardScalesPage() {
         maxNotesPerString: Math.max(1, Math.min(5, routeMaxPerString)),
         preferNps: routePreferNps,
         preferVertical: routePreferVertical,
+        strictFretDirection: routeStrictFretDirection,
         patternInstances: instances,
         instanceMembership: membership,
         preferKeepPattern: keep,
@@ -6659,9 +8166,17 @@ export default function FretboardScalesPage() {
         initAnchorPenalty: internalMode === "pattern" ? 0.8 : 0,
       };
 
-      const res = computeMusicalRoute(args);
-      if (res.reason) return { res, score: Infinity };
-      return { res, score: (res.cost ?? 0) + modePenalty(m) };
+      const tries = routeStrictFretDirection ? [1, -1] : [0];
+      let bestTry = { res: { path: [], cost: null, reason: "No encontré ruta" }, score: Infinity };
+
+      for (const forcedTrend of tries) {
+        const res = computeMusicalRoute({ ...baseArgs, forcedFretTrend: forcedTrend });
+        if (res.reason) continue;
+        const score = (res.cost ?? 0) + modePenalty(m);
+        if (score < bestTry.score) bestTry = { res, score };
+      }
+
+      return bestTry;
     };
 
     const pickBest = (modes) => {
@@ -6702,10 +8217,13 @@ export default function FretboardScalesPage() {
     routeMaxPerString,
     routePreferNps,
     routePreferVertical,
+    routeStrictFretDirection,
     pentaBoxInstances,
     pentaBoxMembership,
     npsInstances,
     npsMembership,
+    cagedInstances,
+    cagedMembership,
   ]);
 
   const routeIndexByCell = useMemo(() => {
@@ -7002,6 +8520,23 @@ export default function FretboardScalesPage() {
             </div>
           ))}
         </div>
+
+        {chordDetectStaffEvents.length ? (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="text-xs font-semibold text-slate-700">Pentagrama de la selección actual</div>
+            <div className="mt-1 text-xs text-slate-600">
+              Se dibuja al pulsar notas, sin esperar a elegir un acorde posible: {chordDetectSelectionPositionsText}
+            </div>
+            <div className="mt-2">
+              <MusicStaff
+                events={chordDetectStaffEvents}
+                preferSharps={chordDetectSelectedCandidate?.preferSharps ?? chordPreferSharps}
+                clefMode="guitar"
+                keySignature={{ type: null, count: 0 }}
+              />
+            </div>
+          </div>
+        ) : null}
       </section>
     );
   }
@@ -7393,6 +8928,147 @@ export default function FretboardScalesPage() {
   // COMPONENTES UI INTERNOS: MÁSTILES PRINCIPALES
   // --------------------------------------------------------------------------
 
+  function RouteLabFretboard() {
+    return (
+      <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold text-slate-800">Ruta musical</div>
+            <div className="text-xs text-slate-600">Ruta musical reescrita desde cero con criterio más tocable.</div>
+          </div>
+
+          <div className="text-xs text-slate-600">
+            {routeLabResult.reason ? (
+              <span className="font-semibold text-rose-600">{routeLabResult.reason}</span>
+            ) : (
+              <span>
+                Ruta: {routeLabStartCode} → {routeLabEndCode} | pasos: <b>{routeLabResult.path.length}</b>
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
+          <div className="text-xs font-semibold text-slate-600">Cuerda</div>
+          {Array.from({ length: maxFret + 1 }, (_, fret) => (
+            <div key={fret} className="relative flex flex-col items-center">
+              <div className="text-[10px] text-slate-600">{fret}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-2 space-y-1">
+          {STRINGS.map((st, sIdx) => (
+            <React.Fragment key={st.label}>
+              <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
+                <div className="text-xs font-medium text-slate-700">{st.label}</div>
+
+                {Array.from({ length: maxFret + 1 }, (_, fret) => {
+                  const pc = mod12(st.pc + fret);
+                  const inScale = scalePcs.has(pc);
+                  const inExtra = showExtra && extraPcs.has(pc);
+                  const displayRole = getDisplayRole({ pc, inScale, inExtra });
+                  const cellKey = `${sIdx}:${fret}`;
+                  const routeIdx = routeLabIndexByCell.get(cellKey);
+                  const inRoute = routeIdx != null;
+                  const bgRoute = inRoute
+                    ? {
+                        backgroundImage: `linear-gradient(0deg, ${rgba(colors.route, 0.28)} 0%, ${rgba(colors.route, 0.28)} 100%)`,
+                        boxShadow: `inset 0 0 0 2px ${rgba("#000000", 0.9)}`,
+                      }
+                    : {};
+                  const shouldRender = inRoute || displayRole !== null || showNonScale;
+                  const effectiveRole = displayRole ?? roleOfPc(pc);
+
+                  return (
+                    <div
+                      key={`${sIdx}-${fret}`}
+                      onClick={() => {
+                        if (!inScale) return;
+                        const code = `${sIdx + 1}${fret}`;
+                        if (routeLabPickNext === "start") {
+                          setRouteLabStartCode(code);
+                          setRouteLabPickNext("end");
+                        } else {
+                          setRouteLabEndCode(code);
+                          setRouteLabPickNext("start");
+                        }
+                      }}
+                      className={`group relative isolate flex h-8 overflow-visible items-center justify-center rounded-lg border ${
+                        fret === 0 ? "border-slate-300" : "border-slate-200"
+                      } ${shouldRender && displayRole ? "z-[4]" : "z-0"} ${inScale ? "cursor-pointer hover:ring-2 hover:ring-slate-300" : ""}`}
+                      style={{ backgroundColor: FRET_CELL_BG, ...bgRoute }}
+                    >
+                      {hasInlayCell(fret, sIdx) ? (
+                        <div
+                          className="pointer-events-none absolute left-1/2 z-0 -translate-x-1/2"
+                          style={{ bottom: "-10px" }}
+                        >
+                          <div className="h-4 w-4 rounded-full bg-slate-300 opacity-95" />
+                        </div>
+                      ) : null}
+                      <HoverCellNote sIdx={sIdx} fret={fret} visible={!shouldRender} />
+                      {shouldRender && (inRoute || displayRole !== null) ? (
+                        <Circle pc={pc} role={effectiveRole} fret={fret} sIdx={sIdx} badge={inRoute ? routeIdx : null} kingTags={[]} />
+                      ) : showNonScale ? (
+                        <div className="text-[10px] text-slate-400">{labelForPc(pc)}</div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </React.Fragment>
+          ))}
+        </div>
+
+        <div className="mt-3 space-y-1 text-xs text-slate-600">
+          <div>
+            Escala activa ({pcToName(rootPc, preferSharps)}): {scaleIntervals.map((i) => intervalToDegreeToken(i)).join(" – ")}
+          </div>
+          <div>
+            Escala activa ({pcToName(rootPc, preferSharps)}): {spelledScaleNotes.join(" – ")}
+          </div>
+          {routeLabText ? (
+            <>
+              <div>
+                <b>Ruta texto:</b> {routeLabText}
+              </div>
+              <div>
+                <b>Coste total:</b> {routeLabResult.cost != null ? Number(routeLabResult.cost).toFixed(2) : "—"}
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2">
+                <div className="font-semibold text-slate-700">Por qué eligió esta ruta</div>
+                <div className="mt-1 space-y-1">
+                  {routeLabDebugLines.length ? routeLabDebugLines.map((line, idx) => (
+                    <div key={idx}>{line}</div>
+                  )) : <div>Sin detalle disponible.</div>}
+                </div>
+              </div>
+            </>
+          ) : null}
+
+	  {routeStaffEvents.length ? (
+            <div className="mt-3">
+              <div className="mb-1 text-xs font-semibold text-slate-700">Pentagrama 4/4</div>
+              <MusicStaff events={routeStaffEvents} preferSharps={preferSharps} clefMode="guitar" keySignature={routeKeySignature} />
+            </div>
+          ) : null}
+
+          {showExtra ? (
+            <>
+              <div>
+                Extra ({pcToName(rootPc, preferSharps)}): {extraIntervals.map((i) => intervalToDegreeToken(i)).join(" – ")}
+              </div>
+              <div>
+                Extra ({pcToName(rootPc, preferSharps)}): {spelledExtraNotes.join(" – ")}
+              </div>
+            </>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
+
   function Fretboard({ title, subtitle, mode }) {
     // mode: scale | patterns | route
     const showAllNotes = showNonScale;
@@ -7605,8 +9281,9 @@ export default function FretboardScalesPage() {
               <div className="mt-2 space-y-1 text-xs text-slate-600">
                 <div>Calcula un recorrido entre una nota inicial y una final siguiendo la escala.</div>
                 <div>Puedes escribir posiciones como <b>61</b> o elegirlas con clic en el mástil.</div>
-                <div>El modo puede ser <b>Libre</b>, <b>Posición</b>, <b>3NPS</b>, <b>Pentatónica</b> o <b>CAGED</b>.</div>
-                <div>Sirve para estudiar digitaciones y continuidad por cuerdas.</div>
+                <div>La ruta musical actual usa el motor nuevo y busca llegar del inicio al fin de la forma más tocable posible.</div>
+                <div>El límite de notas por cuerda es orientativo: intenta respetarlo, pero puede hacer slides o pequeños desplazamientos si eso mejora la digitación.</div>
+                <div>Prioriza avanzar con lógica de guitarrista, evitando retrocesos absurdos de cuerda y favoreciendo trayectorias diagonales naturales.</div>
               </div>
             </section>
 
@@ -7967,10 +9644,10 @@ export default function FretboardScalesPage() {
 
               {isKingBoxEligibleScale ? (
                 <div className="mt-2">
-                  <div className="min-w-[380px] max-w-[520px]">
+                  <div className="min-w-[760px]">
                     <div className={UI_LABEL_SM}>Casitas blues</div>
-                    <div className="mt-1 flex items-center gap-2">
-                      <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+                    <div className="mt-1 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-700">
+                      <label className="inline-flex items-center gap-2 font-semibold text-slate-700">
                         <input
                           type="checkbox"
                           checked={showKingBoxes}
@@ -7980,7 +9657,7 @@ export default function FretboardScalesPage() {
                         Mostrar
                       </label>
                       <select
-                        className={UI_SELECT_SM + " w-40"}
+                        className={UI_SELECT_SM.replace("w-full", "") + " w-40"}
                         value={kingBoxMode}
                         onChange={(e) => setKingBoxMode(e.target.value)}
                         disabled={!showKingBoxes}
@@ -7990,9 +9667,8 @@ export default function FretboardScalesPage() {
                         <option value="albert">Albert King</option>
                         <option value="both">Ambas</option>
                       </select>
-                    </div>
-                    <div className="mt-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs text-slate-700">
                       <label className="inline-flex items-center gap-2">
+                        <span>{KING_BOX_DEFAULTS.bb.label}</span>
                         <input
                           type="color"
                           value={kingBoxColors.bb}
@@ -8000,9 +9676,9 @@ export default function FretboardScalesPage() {
                           className="h-7 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
                           title="Color del borde de B.B. King"
                         />
-                        <span>{KING_BOX_DEFAULTS.bb.label}</span>
                       </label>
                       <label className="inline-flex items-center gap-2">
+                        <span>{KING_BOX_DEFAULTS.albert.label}</span>
                         <input
                           type="color"
                           value={kingBoxColors.albert}
@@ -8010,7 +9686,6 @@ export default function FretboardScalesPage() {
                           className="h-7 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
                           title="Color del borde de Albert King"
                         />
-                        <span>{KING_BOX_DEFAULTS.albert.label}</span>
                       </label>
                     </div>
                   </div>
@@ -8023,85 +9698,36 @@ export default function FretboardScalesPage() {
               {showBoards.scale ? <Fretboard title="Escala" subtitle="Escala + (opcional) extras. Resalta raíz/3ª/5ª." mode="scale" /> : null}
               {showBoards.patterns ? <Fretboard title="Patrones" subtitle="Patrones: 5 boxes (pentatónicas), 7 3NPS (7 notas) y CAGED. Ruta: sigue la escala en orden y se restringe a patrones." mode="patterns" /> : null}
               {showBoards.route ? (
-                <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
-                  <div className="flex flex-wrap items-end justify-between gap-2">
+                <>
+                  <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
                     <div className="text-sm font-semibold text-slate-800">Ruta musical</div>
-                  </div>
-                  <div className="mt-2 grid gap-2 grid-cols-[150px_150px_220px_220px_220px]">
-                    <div>
-                      <label className={UI_LABEL_SM}>Inicio</label>
-                      <input className={UI_INPUT_SM + " mt-1 w-full"} value={routeStartCode} onChange={(e) => setRouteStartCode(e.target.value)} />
+                    <div className="mt-2 grid gap-2 grid-cols-[150px_150px_220px]">
+                      <div>
+                        <label className={UI_LABEL_SM}>Inicio</label>
+                        <input className={UI_INPUT_SM + " mt-1 w-full"} value={routeLabStartCode} onChange={(e) => setRouteLabStartCode(e.target.value)} />
+                      </div>
+                      <div>
+                        <label className={UI_LABEL_SM}>Fin</label>
+                        <input className={UI_INPUT_SM + " mt-1 w-full"} value={routeLabEndCode} onChange={(e) => setRouteLabEndCode(e.target.value)} />
+                      </div>
+                      <div>
+                        <label className={UI_LABEL_SM}>Máx. notas seguidas/cuerda</label>
+                        <select className={UI_SELECT_SM + " mt-1"} value={routeLabMaxPerString} onChange={(e) => setRouteLabMaxPerString(parseInt(e.target.value, 10))}>
+                          {[1, 2, 3, 4, 5].map((n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <label className={UI_LABEL_SM}>Fin</label>
-                      <input className={UI_INPUT_SM + " mt-1 w-full"} value={routeEndCode} onChange={(e) => setRouteEndCode(e.target.value)} />
-                    </div>
-                    <div>
-                      <label className={UI_LABEL_SM}>Máx. notas seguidas/cuerda</label>
-                      <select className={UI_SELECT_SM + " mt-1"} value={routeMaxPerString} onChange={(e) => setRouteMaxPerString(parseInt(e.target.value, 10))}>
-                        {[1, 2, 3, 4, 5].map((n) => (
-                          <option key={n} value={n}>
-                            {n}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className={UI_LABEL_SM}>Modo ruta</label>
-                      <select className={UI_SELECT_SM + " mt-1"} value={routeMode} onChange={(e) => setRouteMode(e.target.value)}>
-                        <option value="auto">Auto</option>
-                        <option value="free">Libre</option>
-                        <option value="pos">Posición/diagonal (slide)</option>
-                        {(!isPentatonicScale && scaleIntervals.length === 7) ? <option value="nps">3NPS</option> : null}
-                        {isPentatonicScale ? <option value="penta">Pentatónica (boxes)</option> : null}
-                        <option value="caged">CAGED</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className={UI_LABEL_SM}>Patrón</label>
-                      <select className={UI_SELECT_SM + " mt-1"} value={routeFixedPattern} onChange={(e) => setRouteFixedPattern(e.target.value)}>
-                        <option value="auto">Auto</option>
-                        {Array.from({ length: 7 }, (_, i) => i).map((i) => (
-                          <option key={i} value={String(i)}>
-                            {routeMode === "penta" ? `Box ${i + 1}` : routeMode === "caged" ? `CAGED ${i + 1}` : `Patrón ${i + 1}`}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
 
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <ToggleButton active={routePreferNps} onClick={() => setRoutePreferNps((v) => !v)} title="Penaliza cambios de cuerda si aún no completas NPS">
-                      Preferir NPS
-                    </ToggleButton>
-                    <ToggleButton active={routePreferVertical} onClick={() => setRoutePreferVertical((v) => !v)} title="Empuja a resolver bajando/subiendo en vertical si es viable">
-                      Preferir vertical
-                    </ToggleButton>
-                    <ToggleButton active={routeKeepPattern} onClick={() => setRouteKeepPattern((v) => !v)} title="Intenta mantener la misma instancia de patrón si es posible">
-                      Mantener patrón
-                    </ToggleButton>
-                    <ToggleButton active={allowPatternSwitch} onClick={() => setAllowPatternSwitch((v) => !v)} title="Permite cambiar de patrón durante la ruta">
-                      Permite cambio patrón
-                    </ToggleButton>
+                    <div className="mt-2 text-[11px] text-slate-500">Click en el mástil de ruta para elegir: {routeLabPickNext === "start" ? "Inicio" : "Fin"}.</div>
+                  </section>
 
-                    <div className="ml-2 flex items-center gap-2 text-xs text-slate-700">
-                      <span className="font-semibold">Coste cambio</span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={6}
-                        step={0.5}
-                        value={patternSwitchPenalty}
-                        onChange={(e) => setPatternSwitchPenalty(parseFloat(e.target.value))}
-                      />
-                      <span className="tabular-nums">{patternSwitchPenalty.toFixed(1)}</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 text-[11px] text-slate-500">Click en el mástil de ruta para elegir: {routePickNext === "start" ? "Inicio" : "Fin"}.</div>
-                </section>
+                  <RouteLabFretboard />
+                </>
               ) : null}
-              {showBoards.route ? <Fretboard title="Ruta" subtitle="Ruta musical restringida a patrones (o libre)." mode="route" /> : null}
 
               {showBoards.chords ? (
                 <div className="space-y-3">
