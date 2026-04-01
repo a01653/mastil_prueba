@@ -9036,14 +9036,14 @@ export default function FretboardScalesPage() {
               <div>
                 <b>Coste total:</b> {routeLabResult.cost != null ? Number(routeLabResult.cost).toFixed(2) : "—"}
               </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2">
-                <div className="font-semibold text-slate-700">Por qué eligió esta ruta</div>
-                <div className="mt-1 space-y-1">
+              <details className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2">
+                <summary className="cursor-pointer font-semibold text-slate-700">Por qué eligió esta ruta</summary>
+                <div className="mt-2 space-y-1 text-slate-600">
                   {routeLabDebugLines.length ? routeLabDebugLines.map((line, idx) => (
                     <div key={idx}>{line}</div>
                   )) : <div>Sin detalle disponible.</div>}
                 </div>
-              </div>
+              </details>
             </>
           ) : null}
 
