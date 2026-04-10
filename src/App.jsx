@@ -951,7 +951,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "2.65";
+const APP_VERSION = "2.68";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -5327,25 +5327,41 @@ function formatChordBadgeDegree(label) {
   return s;
 }
 
+function chordBadgeRoleFromDegreeLabel(label, interval) {
+  const s = String(label || "").toLowerCase();
+  const intv = mod12(interval ?? 0);
+  if (intv === 0 || s === "1") return "root";
+  if (s === "3" || s === "b3" || s === "#3" || s === "2" || s === "4") return "third";
+  if (s === "5" || s === "b5" || s === "#5") return "fifth";
+  if (s.includes("7")) return "seventh";
+  if (s === "6" || s.includes("13")) return "thirteenth";
+  if (s.includes("11")) return "eleventh";
+  if (s.includes("9")) return "ninth";
+  return "other";
+}
+
 function buildChordBadgeItems({ notes, intervals, degreeLabels, ext6 = false, ext9 = false, ext11 = false, ext13 = false, structure = "triad" }) {
   const safeNotes = Array.isArray(notes) ? notes : [];
   const safeIntervals = Array.isArray(intervals) ? intervals : [];
 
   return safeNotes
     .map((note, idx) => {
-      const fallback = intervalToChordToken(safeIntervals[idx] ?? 0, {
+      const rawInterval = safeIntervals[idx] ?? 0;
+      const fallback = intervalToChordToken(rawInterval, {
         ext6,
         ext9: ext9 && structure !== "triad",
         ext11: ext11 && structure !== "triad",
         ext13: ext13 && structure !== "triad",
       });
-      const degree = formatChordBadgeDegree(String(degreeLabels?.[idx] || fallback));
-      return note && degree ? { note, degree } : null;
+      const degreeRaw = String(degreeLabels?.[idx] || fallback);
+      const degree = formatChordBadgeDegree(degreeRaw);
+      const role = chordBadgeRoleFromDegreeLabel(degreeRaw, rawInterval);
+      return note && degree ? { note, degree, role } : null;
     })
     .filter(Boolean);
 }
 
-function ChordNoteBadgeStrip({ items, bassNote, bassLabel = "Bajo" }) {
+function ChordNoteBadgeStrip({ items, bassNote, bassLabel = "Bajo", colorMap }) {
   const safeItems = Array.isArray(items) ? items.filter(Boolean) : [];
   if (!safeItems.length && !bassNote) return null;
 
@@ -5353,14 +5369,21 @@ function ChordNoteBadgeStrip({ items, bassNote, bassLabel = "Bajo" }) {
     <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
       {safeItems.length ? (
         <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-          {safeItems.map((item, idx) => (
-            <div key={`${item.note}-${item.degree}-${idx}`} className="flex min-w-[34px] flex-col items-center gap-1">
-              <div className="text-[11px] font-semibold text-slate-700">{item.note}</div>
-              <div className="min-w-[34px] rounded-md bg-sky-500 px-2 py-1 text-center text-[10px] font-semibold leading-none text-white shadow-sm">
-                {item.degree}
+          {safeItems.map((item, idx) => {
+            const bg = (colorMap && colorMap[item.role]) || (colorMap && colorMap.other) || "#0ea5e9";
+            const fg = isDark(bg) ? "#ffffff" : "#0f172a";
+            return (
+              <div key={item.note + "-" + item.degree + "-" + idx} className="flex min-w-[34px] flex-col items-center gap-1">
+                <div className="text-[11px] font-semibold text-slate-700">{item.note}</div>
+                <div
+                  className="min-w-[34px] rounded-md px-2 py-1 text-center text-[10px] font-semibold leading-none shadow-sm"
+                  style={{ backgroundColor: bg, color: fg }}
+                >
+                  {item.degree}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : null}
 
@@ -8718,6 +8741,7 @@ export default function FretboardScalesPage() {
                   <ChordNoteBadgeStrip
                     items={chordDetectSelectedCandidateBadgeItems}
                     bassNote={chordDetectSelectedCandidateBassNote}
+                    colorMap={colors}
                   />
                 </div>
                 <div className="mt-1 text-xs text-slate-600">Notas de la escala: {chordDetectSelectedCandidateScaleNotesText}</div>
@@ -10032,7 +10056,7 @@ export default function FretboardScalesPage() {
                             <span className="ml-2 text-xs font-semibold text-slate-800">{chordBaseDisplayName}</span>
                           </div>
                           <div className="mt-1">
-                            <ChordNoteBadgeStrip items={chordHeaderBadgeItems} bassNote={chordHeaderBassNote} />
+                            <ChordNoteBadgeStrip items={chordHeaderBadgeItems} bassNote={chordHeaderBassNote} colorMap={colors} />
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
