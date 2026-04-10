@@ -951,7 +951,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "2.69";
+const APP_VERSION = "2.75";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -2100,6 +2100,11 @@ function buildBackdoorDominantInfo(targetRootPc, preferSharps) {
 // ============================================================================
 
 const CHORD_DETECT_FORMULAS = [
+  { id: "5", intervals: [0, 7], degreeLabels: ["1", "5"], suffix: "5", ui: null, manualOnly: true, allowDyad: true },
+  { id: "sus2no5", intervals: [0, 2], degreeLabels: ["1", "2"], suffix: "sus2(no5)", ui: null, manualOnly: true, allowDyad: true },
+  { id: "sus4no5", intervals: [0, 5], degreeLabels: ["1", "4"], suffix: "sus4(no5)", ui: null, manualOnly: true, allowDyad: true },
+  { id: "majno5", intervals: [0, 4], degreeLabels: ["1", "3"], suffix: "(no5)", ui: null, manualOnly: true, allowDyad: true },
+  { id: "minno5", intervals: [0, 3], degreeLabels: ["1", "b3"], suffix: "m(no5)", ui: null, manualOnly: true, allowDyad: true },
   { id: "maj", intervals: [0, 4, 7], degreeLabels: ["1", "3", "5"], suffix: "", ui: { quality: "maj", suspension: "none", structure: "triad", inversion: "all", form: "open", positionForm: "open", ext7: false, ext6: false, ext9: false, ext11: false, ext13: false } },
   { id: "min", intervals: [0, 3, 7], degreeLabels: ["1", "b3", "5"], suffix: "m", ui: { quality: "min", suspension: "none", structure: "triad", inversion: "all", form: "open", positionForm: "open", ext7: false, ext6: false, ext9: false, ext11: false, ext13: false } },
   { id: "dim", intervals: [0, 3, 6], degreeLabels: ["1", "b3", "b5"], suffix: "dim", ui: { quality: "dim", suspension: "none", structure: "triad", inversion: "all", form: "open", positionForm: "open", ext7: false, ext6: false, ext9: false, ext11: false, ext13: false } },
@@ -2109,6 +2114,7 @@ const CHORD_DETECT_FORMULAS = [
   { id: "m6", intervals: [0, 3, 7, 9], degreeLabels: ["1", "b3", "5", "6"], suffix: "m6", ui: { quality: "min", suspension: "none", structure: "tetrad", inversion: "all", form: "open", positionForm: "open", ext7: false, ext6: true, ext9: false, ext11: false, ext13: false } },
   { id: "add9", intervals: [0, 2, 4, 7], degreeLabels: ["1", "9", "3", "5"], suffix: "add9", ui: { quality: "maj", suspension: "none", structure: "tetrad", inversion: "all", form: "open", positionForm: "open", ext7: false, ext6: false, ext9: true, ext11: false, ext13: false } },
   { id: "madd9", intervals: [0, 2, 3, 7], degreeLabels: ["1", "9", "b3", "5"], suffix: "m(add9)", ui: { quality: "min", suspension: "none", structure: "tetrad", inversion: "all", form: "open", positionForm: "open", ext7: false, ext6: false, ext9: true, ext11: false, ext13: false } },
+  { id: "sus2add13no5", intervals: [0, 2, 9], degreeLabels: ["1", "2", "13"], suffix: "sus2add13(no5)", ui: null, manualOnly: true },
   { id: "add11", intervals: [0, 4, 5, 7], degreeLabels: ["1", "3", "11", "5"], suffix: "add11", ui: { quality: "maj", suspension: "none", structure: "tetrad", inversion: "all", form: "open", positionForm: "open", ext7: false, ext6: false, ext9: false, ext11: true, ext13: false } },
   { id: "madd11", intervals: [0, 3, 5, 7], degreeLabels: ["1", "b3", "11", "5"], suffix: "m(add11)", ui: { quality: "min", suspension: "none", structure: "tetrad", inversion: "all", form: "open", positionForm: "open", ext7: false, ext6: false, ext9: false, ext11: true, ext13: false } },
   { id: "maddb13", intervals: [0, 3, 7, 8], degreeLabels: ["1", "b3", "5", "b13"], suffix: "m(addb13)", ui: null },
@@ -2256,10 +2262,17 @@ function candidateHasCompleteTriad(candidate) {
   return hasRoot && hasThird && hasFifth;
 }
 
+function candidateIsMissingThirdSeventhLike(candidate) {
+  if (!candidate) return false;
+  if (!(candidate.missingLabels || []).some((x) => isThirdDegreeLabel(x))) return false;
+  const labels = candidateVisibleDegreeLabels(candidate);
+  return labels.some((x) => isSeventhDegreeLabel(x) || isSixthDegreeLabel(x));
+}
+
 function candidateFormulaComplexityPenalty(candidate) {
   const id = String(candidate?.formula?.id || "");
   if (["maj", "min", "sus2", "sus4"].includes(id)) return 0;
-  if (["6", "m6", "add9", "madd9", "add11", "madd11"].includes(id)) return 2;
+  if (["6", "m6", "add9", "madd9", "add11", "madd11", "sus2add13no5"].includes(id)) return 2;
   if (["maj7", "7", "m7", "m7b5", "dim7"].includes(id)) return 4;
   if (["maj9", "9", "m9"].includes(id)) return 6;
   if (["mmaj7"].includes(id)) return 8;
@@ -2330,8 +2343,15 @@ function analyzeDetectedChordCandidates(selectedNotes) {
 
       const matches = formulaIntervals.filter((x) => coreSelected.includes(x));
       const missing = formulaIntervals.filter((x) => !coreSelected.includes(x));
-      if (matches.length < Math.min(formulaIntervals.length, 3)) continue;
-      if (missing.length > 1) continue;
+      const minRequiredMatches = formula.allowDyad ? Math.min(formulaIntervals.length, 2) : Math.min(formulaIntervals.length, 3);
+      if (matches.length < minRequiredMatches) continue;
+      if (formula.allowDyad) {
+        if (selectedIntervalsAll.length !== 2) continue;
+        if (externalBassInterval != null) continue;
+        if (missing.length > 0) continue;
+      } else {
+        if (missing.length > 1) continue;
+      }
 
       const missingLabels = formulaIntervals
         .map((intv, idx) => !coreSelected.includes(intv) ? formula.degreeLabels[idx] : null)
@@ -2365,7 +2385,7 @@ function analyzeDetectedChordCandidates(selectedNotes) {
 
       const exact = missing.length === 0;
       const slashPenalty = bass.pc === rootPc ? 0 : (externalBassInterval == null ? 1 : 3);
-      const score = (exact ? 0 : 20) + slashPenalty + missing.length * 6 + Math.max(0, 4 - matches.length);
+      const score = (exact ? 0 : 20) + slashPenalty + missing.length * 6 + Math.max(0, 4 - matches.length) + (formula.allowDyad ? 14 : 0);
 
       for (const spelling of spellings) {
         const noteNames = spelling.noteNames;
@@ -2375,7 +2395,7 @@ function analyzeDetectedChordCandidates(selectedNotes) {
         const visibleNotes = formulaIntervals
           .map((intv, idx) => coreSelected.includes(intv) ? noteNames[idx] : null)
           .filter(Boolean);
-        const uiPatch = formula.ui ? { rootPc, spellPreferSharps: spelling.preferSharpsChoice, ...formula.ui } : null;
+        const uiPatch = formula.allowDyad ? null : (formula.ui ? { rootPc, spellPreferSharps: spelling.preferSharpsChoice, ...formula.ui } : null);
         const candidate = {
           id: `${formula.id}|${rootPc}|${externalBassInterval == null ? "in" : externalBassInterval}|${missingLabels.join(",")}|${spelling.preferSharpsChoice ? "sharp" : "flat"}`,
           name: spelling.name,
@@ -2413,8 +2433,11 @@ function analyzeDetectedChordCandidates(selectedNotes) {
   );
 
   const exactCandidates = raw.filter((c) => c.exact);
+  const hasDirectExactDyad = exactCandidates.some((c) => c.formula?.allowDyad && c.externalBassInterval == null);
 
   const filtered = raw.filter((c) => {
+    if (c.formula?.allowDyad) return true;
+    if (hasDirectExactDyad && c.externalBassInterval != null) return false;
     if (c.missingLabels.some((x) => suffixSemanticallyContainsDegree(c.formula?.suffix, x))) return false;
     if (c.exact) {
       if (shouldFilterExactSubsetCandidate(c, exactCandidates)) return false;
@@ -2432,8 +2455,15 @@ function analyzeDetectedChordCandidates(selectedNotes) {
     return true;
   });
 
+  const hasCleanerExactCandidate = exactCandidates.some((c) => c.exact);
+  filtered.forEach((c) => {
+    let extraPenalty = 0;
+    if (hasCleanerExactCandidate && candidateIsMissingThirdSeventhLike(c)) extraPenalty += 18;
+    c.rankScore = Number(((c.probabilityScore ?? 999) + extraPenalty).toFixed(2));
+  });
+
   filtered.sort((a, b) => {
-    if ((a.probabilityScore ?? 999) !== (b.probabilityScore ?? 999)) return (a.probabilityScore ?? 999) - (b.probabilityScore ?? 999);
+    if ((a.rankScore ?? 999) !== (b.rankScore ?? 999)) return (a.rankScore ?? 999) - (b.rankScore ?? 999);
     if (a.score !== b.score) return a.score - b.score;
     return a.name.localeCompare(b.name, "es", { sensitivity: "base" });
   });
@@ -5331,12 +5361,12 @@ function chordBadgeRoleFromDegreeLabel(label, interval) {
   const s = String(label || "").toLowerCase();
   const intv = mod12(interval ?? 0);
   if (intv === 0 || s === "1") return "root";
-  if (s === "3" || s === "b3" || s === "#3" || s === "2" || s === "4") return "third";
+  if (s === "3" || s === "b3" || s === "#3") return "third";
   if (s === "5" || s === "b5" || s === "#5") return "fifth";
   if (s.includes("7")) return "seventh";
   if (s === "6" || s.includes("13")) return "thirteenth";
-  if (s.includes("11")) return "eleventh";
-  if (s.includes("9")) return "ninth";
+  if (s === "4" || s.includes("11")) return "eleventh";
+  if (s === "2" || s.includes("9")) return "ninth";
   return "other";
 }
 
