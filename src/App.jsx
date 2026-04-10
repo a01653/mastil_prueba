@@ -388,6 +388,11 @@ function intervalToDegreeToken(semi) {
   return map[mod12(semi)];
 }
 
+function intervalToSimpleChordDegreeToken(semi) {
+  const map = ["1", "b2", "2", "b3", "3", "4", "b5", "5", "#5", "6", "b7", "7"];
+  return map[mod12(semi)];
+}
+
 // ============================================================================
 // MOTOR DE ACORDES Y NOMENCLATURA
 // ============================================================================
@@ -946,7 +951,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "2.59";
+const APP_VERSION = "2.61";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -2389,10 +2394,27 @@ function buildDetectedCandidateNoteNameForPc(pc, candidate, preferSharpsFallback
 function buildDetectedCandidateLabelForPc(pc, candidate, preferSharpsFallback, showIntervals = true, showNotes = true) {
   const noteName = buildDetectedCandidateNoteNameForPc(pc, candidate, preferSharpsFallback);
   if (!candidate) return noteName;
+
   const interval = mod12(pc - candidate.rootPc);
   const idx = candidate.formula.intervals.findIndex((x) => mod12(x) === interval);
-  const degree = idx >= 0 ? candidate.formula.degreeLabels[idx] : null;
-  if (!degree) return noteName;
+  const degree = idx >= 0
+    ? candidate.formula.degreeLabels[idx]
+    : intervalToSimpleChordDegreeToken(interval);
+
+  if (!showIntervals && !showNotes) return degree;
+  if (showIntervals && showNotes) return `${degree}-${noteName}`;
+  if (showIntervals) return degree;
+  return noteName;
+}
+
+function buildDetectedCandidateBackgroundLabelForPc(pc, candidate, preferSharpsFallback, showIntervals = true, showNotes = true) {
+  if (!candidate) return pcToName(pc, preferSharpsFallback);
+
+  const prefer = candidate.preferSharps ?? preferSharpsFallback;
+  const interval = mod12(pc - candidate.rootPc);
+  const degree = intervalToSimpleChordDegreeToken(interval);
+  const noteName = spellNoteFromChordInterval(candidate.rootPc, interval, prefer);
+
   if (!showIntervals && !showNotes) return degree;
   if (showIntervals && showNotes) return `${degree}-${noteName}`;
   if (showIntervals) return degree;
@@ -6881,9 +6903,14 @@ export default function FretboardScalesPage() {
     };
   }, []);
 
+  function selectDetectedCandidate(candidate) {
+    setChordDetectCandidateId(candidate?.id || null);
+  }
+
   function applyDetectedCandidate(candidate) {
     if (!candidate) return;
     setChordDetectCandidateId(candidate.id);
+    if (!candidate.uiPatch) return;
     setStudyTarget("main");
     if (candidate.uiPatch) {
       const p = candidate.uiPatch;
@@ -6942,9 +6969,33 @@ export default function FretboardScalesPage() {
     [chordDetectSelectedNotes]
   );
 
-  const chordBaseDisplayName = chordDetectMode && chordDetectSelectedCandidate
-    ? chordDetectSelectedCandidate.name
-    : chordDisplayNameFromUI({
+  const chordDetectSelectedCandidateNotesText = useMemo(() => {
+    if (!chordDetectSelectedCandidate) return "";
+    const coreNotes = Array.isArray(chordDetectSelectedCandidate.visibleNotes)
+      ? chordDetectSelectedCandidate.visibleNotes.filter(Boolean)
+      : [];
+    const noteText = Array.from(new Set(coreNotes)).join(", ");
+    if (chordDetectSelectedCandidate.externalBassInterval == null) return noteText;
+
+    const bassName = spellNoteFromChordInterval(
+      chordDetectSelectedCandidate.rootPc,
+      chordDetectSelectedCandidate.externalBassInterval,
+      chordDetectSelectedCandidate.preferSharps ?? chordPreferSharps
+    );
+
+    return noteText ? `${noteText} · bajo en ${bassName}` : `bajo en ${bassName}`;
+  }, [chordDetectSelectedCandidate, chordPreferSharps]);
+
+  const chordDetectSelectedCandidateScaleNotesText = useMemo(() => {
+    if (!chordDetectSelectedCandidate) return "";
+    return spellScaleNotes({
+      rootPc: chordDetectSelectedCandidate.rootPc,
+      scaleIntervals,
+      preferSharps: chordDetectSelectedCandidate.preferSharps ?? chordPreferSharps,
+    }).join(", ");
+  }, [chordDetectSelectedCandidate, scaleIntervals, chordPreferSharps]);
+
+  const chordBaseDisplayName = chordDisplayNameFromUI({
         rootPc: chordRootPc,
         preferSharps: chordPreferSharps,
         quality: chordQuality,
@@ -8436,12 +8487,17 @@ export default function FretboardScalesPage() {
       <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <div className="text-sm font-semibold text-slate-800">Acorde por selección manual</div>
-            <div className="text-xs text-slate-600">
-              {chordDetectSelectedNotes.length
-                ? `Notas seleccionadas: ${chordDetectSelectedNotesText}. Pulsa de nuevo para quitar una nota.`
-                : "Pulsa en el mástil para añadir o quitar notas y detectar acordes posibles."}
+            <div className="text-sm font-semibold text-slate-800">
+              {chordDetectSelectedCandidate ? `Acorde por selección manual - ${chordDetectSelectedCandidate.name}` : "Acorde por selección manual"}
             </div>
+            {chordDetectSelectedCandidate ? (
+              <>
+                <div className="text-xs text-slate-600">(Notas: {chordDetectSelectedCandidateNotesText})</div>
+                <div className="text-xs text-slate-600">Notas de la escala: {chordDetectSelectedCandidateScaleNotesText}</div>
+              </>
+            ) : (
+              <div className="text-xs text-slate-600">Pulsa en el mástil para añadir o quitar notas y detectar acordes posibles.</div>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
           <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
@@ -8504,12 +8560,17 @@ export default function FretboardScalesPage() {
                         <div className="h-4 w-4 rounded-full bg-slate-300 opacity-80" />
                       </div>
                     ) : null}
-                    {item ? <ChordInvestigationCircle pc={item.pc} fret={fret} sIdx={sIdx} candidate={chordDetectSelectedCandidate} isBass={item.isBass} /> : (fret === 0 && !selectedStrings.has(sIdx) ? <span className="text-xs font-semibold text-slate-400">X</span> : (showNonScale ? <div className="text-[10px] text-slate-400">{labelForCellAt(sIdx, fret)}</div> : null))}
+                    {item ? <ChordInvestigationCircle pc={item.pc} fret={fret} sIdx={sIdx} candidate={chordDetectSelectedCandidate} isBass={item.isBass} /> : (fret === 0 && !selectedStrings.has(sIdx) ? <span className="text-xs font-semibold text-slate-400">X</span> : (showNonScale ? <div className="text-[10px] text-slate-400">{chordDetectSelectedCandidate ? buildDetectedCandidateBackgroundLabelForPc(mod12(STRINGS[sIdx].pc + fret), chordDetectSelectedCandidate, chordPreferSharps, showIntervalsLabel, showNotesLabel) : labelForCellAt(sIdx, fret)}</div> : null))}
                   </button>
                 );
               })}
             </div>
           ))}
+        </div>
+        <div className="mt-3 text-xs text-slate-600">
+          {chordDetectSelectedNotes.length
+            ? <><b>Notas seleccionadas:</b> {chordDetectSelectedNotesText}. Pulsa de nuevo para quitar una nota.</>
+            : "Notas seleccionadas: —"}
         </div>
 
         {chordDetectStaffEvents.length ? (
@@ -10109,19 +10170,30 @@ export default function FretboardScalesPage() {
                         </div>
                         <div className="mt-3 space-y-2">
                           {chordDetectCandidates.length ? chordDetectCandidates.map((cand) => (
-                            <label key={cand.id} className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                              <input
-                                type="radio"
-                                name="detected-chord"
-                                checked={chordDetectCandidateId === cand.id}
-                                onChange={() => applyDetectedCandidate(cand)}
-                                className="mt-0.5 h-4 w-4"
-                              />
-                              <div>
-                                <div className="font-semibold text-slate-800">{cand.name}</div>
-                                <div>{cand.intervalPairsText}</div>
-                              </div>
-                            </label>
+                            <div key={cand.id} className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                              <label className="flex min-w-0 flex-1 items-start gap-3">
+                                <input
+                                  type="radio"
+                                  name="detected-chord"
+                                  checked={chordDetectCandidateId === cand.id}
+                                  onChange={() => selectDetectedCandidate(cand)}
+                                  className="mt-0.5 h-4 w-4"
+                                />
+                                <div className="min-w-0">
+                                  <div className="font-semibold text-slate-800">{cand.name}</div>
+                                  <div>{cand.intervalPairsText}</div>
+                                </div>
+                              </label>
+                              <button
+                                type="button"
+                                className={UI_BTN_SM + " w-auto shrink-0 px-3"}
+                                onClick={() => applyDetectedCandidate(cand)}
+                                disabled={!cand.uiPatch}
+                                title={cand.uiPatch ? "Copiar esta lectura a la sección Acorde" : "Esta lectura no es compatible con el constructor superior"}
+                              >
+                                Copiar en Acorde
+                              </button>
+                            </div>
                           )) : (
                             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs text-slate-500">
                               No hay lecturas claras todavía. Empieza con 3 o 4 notas.
