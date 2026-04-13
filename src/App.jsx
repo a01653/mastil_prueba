@@ -951,7 +951,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "2.75";
+const APP_VERSION = "2.84";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -2203,6 +2203,7 @@ function allowMissingThirdCandidate(candidate) {
 }
 
 function shouldFilterExternalBassSubsetCandidate(candidate, exactCandidates) {
+  if (candidate?.formula?.quartal) return false;
   if (!candidate || candidate.externalBassInterval == null) return false;
   const wanted = new Set([...candidate.visibleIntervals, mod12(candidate.externalBassInterval)].map(mod12));
 
@@ -2226,6 +2227,7 @@ function candidateHeardIntervalSignature(candidate) {
 }
 
 function shouldFilterExactSubsetCandidate(candidate, exactCandidates) {
+  if (candidate?.formula?.quartal) return false;
   if (!candidate?.exact) return false;
   const ownSig = candidateHeardIntervalSignature(candidate);
   if (!ownSig) return false;
@@ -2283,6 +2285,20 @@ function candidateFormulaComplexityPenalty(candidate) {
 function candidateProbabilityScore(candidate) {
   if (!candidate) return 999;
 
+  if (candidate?.formula?.quartal) {
+    const quartalSize = (candidate.formula?.intervals || []).length;
+    let score = candidate.formula?.quartalType === "pure" ? 5 : 7;
+
+    if (candidate.exact) score -= 2;
+    else score += 3;
+
+    if (quartalSize > 3) score -= (quartalSize - 3) * 1.1;
+    if (candidate.externalBassInterval != null) score += 2.5;
+    if (candidate.bassPc === candidate.rootPc) score -= 1.5;
+
+    return Number(score.toFixed(2));
+  }
+
   let score = 0;
   const formulaSize = (candidate.formula?.intervals || []).length;
   const triadCore = candidateHasCompleteTriad(candidate);
@@ -2315,6 +2331,119 @@ function candidateProbabilityScore(candidate) {
   score += ((candidate.name || "").match(/[♯#b♭]/g) || []).length * 0.15;
 
   return Number(score.toFixed(2));
+}
+
+function buildQuartalStepText(step) {
+  return step === 6 ? "A4" : "4J";
+}
+
+function buildQuartalChainsFromSelected({ rootPc, selectedPcs, allowMixed = true }) {
+  const pcs = Array.from(new Set((selectedPcs || []).map(mod12)));
+  const selectedSet = new Set(pcs);
+  if (!selectedSet.has(mod12(rootPc))) return [];
+
+  const out = [];
+  const seen = new Set();
+  const maxLen = Math.min(5, pcs.length);
+
+  const rec = (chain, steps) => {
+    if (chain.length >= 3) {
+      const key = `${chain.join(",")}|${steps.join(",")}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push({ pcs: [...chain], steps: [...steps] });
+      }
+    }
+
+    if (chain.length >= maxLen) return;
+
+    const last = chain[chain.length - 1];
+    const nextSteps = allowMixed ? [5, 6] : [5];
+    for (const step of nextSteps) {
+      const nextPc = mod12(last + step);
+      if (!selectedSet.has(nextPc)) continue;
+      if (chain.includes(nextPc)) continue;
+      rec([...chain, nextPc], [...steps, step]);
+    }
+  };
+
+  rec([mod12(rootPc)], []);
+  return out;
+}
+
+function buildQuartalManualCandidates(selectedNotes) {
+  const list = Array.isArray(selectedNotes) ? [...selectedNotes] : [];
+  if (list.length < 3) return [];
+
+  const ordered = [...list].sort((a, b) => a.pitch - b.pitch);
+  const bass = ordered[0];
+  const uniquePcs = Array.from(new Set(ordered.map((n) => mod12(n.pc))));
+  const out = [];
+  const seen = new Map();
+
+  for (const rootPc of uniquePcs) {
+    const preferSharps = preferSharpsFromMajorTonicPc(mod12(rootPc));
+    const chains = buildQuartalChainsFromSelected({ rootPc, selectedPcs: uniquePcs, allowMixed: true });
+
+    for (const chain of chains) {
+      const chainSet = new Set(chain.pcs.map(mod12));
+      const extras = uniquePcs.filter((pc) => !chainSet.has(mod12(pc)));
+      if (extras.length > 1) continue;
+      if (extras.length === 1 && mod12(extras[0]) !== mod12(bass.pc)) continue;
+
+      const visibleIntervals = chain.pcs.map((pc) => mod12(pc - rootPc));
+      const degreeLabels = visibleIntervals.map((intv) => intervalToSimpleChordDegreeToken(intv));
+      const visibleNotes = spellChordNotes({ rootPc, chordIntervals: visibleIntervals, preferSharps });
+      const externalBassInterval = extras.length ? mod12(bass.pc - rootPc) : null;
+      const bassName = externalBassInterval == null
+        ? pcToName(rootPc, preferSharps)
+        : spellNoteFromChordInterval(rootPc, externalBassInterval, preferSharps);
+      const quartalType = chain.steps.every((step) => step === 5) ? "pure" : "mixed";
+      const rootName = pcToName(rootPc, preferSharps);
+      const name = `${quartalType === "mixed" ? "Cuartal mixto" : "Cuartal"} ${rootName}${bassName !== rootName ? `/${bassName}` : ""}`;
+      const stepText = chain.steps.map(buildQuartalStepText).join(" · ");
+      const intervalPairsText = `${visibleNotes.join(" – ")} · bajo en ${bassName}${stepText ? ` · ${stepText}` : ""}`;
+      const exact = extras.length === 0 && chain.pcs.length === uniquePcs.length;
+      const score = Number(((exact ? 6 : 10) + (quartalType === "mixed" ? 2 : 0) + (externalBassInterval != null ? 2 : 0) - Math.max(0, chain.pcs.length - 3)).toFixed(2));
+
+      const candidate = {
+        id: `quartal|${quartalType}|${rootPc}|${externalBassInterval == null ? "in" : externalBassInterval}|${chain.pcs.join(".")}`,
+        name,
+        rootPc,
+        bassPc: bass.pc,
+        preferSharps,
+        formula: {
+          id: `quartal_${quartalType}_${visibleIntervals.length}`,
+          intervals: visibleIntervals,
+          degreeLabels,
+          suffix: "",
+          ui: null,
+          manualOnly: true,
+          quartal: true,
+          quartalType,
+          quartalSteps: [...chain.steps],
+        },
+        exact,
+        score,
+        uiPatch: null,
+        intervalPairsText,
+        visibleNotes,
+        visibleIntervals,
+        missingLabels: [],
+        externalBassInterval,
+      };
+
+      candidate.probabilityScore = candidateProbabilityScore(candidate);
+
+      const dedupeKey = `${candidate.name}|${candidate.intervalPairsText}`;
+      const prev = seen.get(dedupeKey);
+      if (!prev || candidate.probabilityScore < prev.probabilityScore || (candidate.probabilityScore === prev.probabilityScore && candidate.score < prev.score)) {
+        seen.set(dedupeKey, candidate);
+      }
+    }
+  }
+
+  return Array.from(seen.values());
 }
 
 function analyzeDetectedChordCandidates(selectedNotes) {
@@ -2425,6 +2554,7 @@ function analyzeDetectedChordCandidates(selectedNotes) {
   }
 
   raw.push(...seen.values());
+  raw.push(...buildQuartalManualCandidates(selectedNotes));
 
   const exactSubsetSignatures = new Set(
     raw
@@ -2463,6 +2593,18 @@ function analyzeDetectedChordCandidates(selectedNotes) {
   });
 
   filtered.sort((a, b) => {
+    const groupPriority = (candidate) => {
+      if (candidate?.formula?.quartal) {
+        const quartalSize = Array.isArray(candidate?.formula?.intervals) ? candidate.formula.intervals.length : 0;
+        return quartalSize >= 4 ? 2 : 3;
+      }
+      return 0;
+    };
+
+    const aGroup = groupPriority(a);
+    const bGroup = groupPriority(b);
+    if (aGroup !== bGroup) return aGroup - bGroup;
+
     if ((a.rankScore ?? 999) !== (b.rankScore ?? 999)) return (a.rankScore ?? 999) - (b.rankScore ?? 999);
     if (a.score !== b.score) return a.score - b.score;
     return a.name.localeCompare(b.name, "es", { sensitivity: "base" });
@@ -2731,6 +2873,249 @@ const CHORD_STRUCTURES = [
   { value: "tetrad", label: "Cuatriada" },
   { value: "chord", label: "Acorde" },
 ];
+
+const CHORD_FAMILIES = [
+  { value: "tertian", label: "Terciaria" },
+  { value: "quartal", label: "Cuartal" },
+];
+
+const CHORD_QUARTAL_TYPES = [
+  { value: "pure", label: "Cuartal puro" },
+  { value: "mixed", label: "Cuartal mixto" },
+];
+
+const CHORD_QUARTAL_VOICES = [
+  { value: "3", label: "3 voces" },
+  { value: "4", label: "4 voces" },
+  { value: "5", label: "5 voces" },
+];
+
+const CHORD_QUARTAL_SPREADS = [
+  { value: "closed", label: "Cerrado" },
+  { value: "open", label: "Abierto" },
+];
+
+const CHORD_QUARTAL_REFERENCES = [
+  { value: "root", label: "Desde raíz" },
+  { value: "scale", label: "Diatónico a la escala mayor" },
+];
+
+const QUARTAL_OPEN_STRING_PCS = [4, 11, 7, 2, 9, 4];
+const QUARTAL_OPEN_STRING_MIDI = [64, 59, 55, 50, 45, 40];
+const QUARTAL_PC_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+function fnBuildQuartalNoteName(vPc) {
+  return QUARTAL_PC_NAMES[mod12(vPc)] || "?";
+}
+
+function fnBuildQuartalDegreeLabel(vDegree) {
+  if (typeof vDegree !== "number") return "";
+  return `grado ${romanizeDegreeNumber(vDegree + 1)}`;
+}
+
+function fnBuildQuartalVoicingNotes(vStringIndices, vFrets, vMidis, vOrderedPcs) {
+  return vStringIndices.map((vStringIdx, vIdx) => {
+    const vFret = vFrets[vIdx];
+    const vMidi = vMidis[vIdx];
+    const vPc = mod12(vOrderedPcs[vIdx]);
+    const vName = fnBuildQuartalNoteName(vPc);
+    return {
+      sIdx: vStringIdx,
+      stringIndex: vStringIdx,
+      stringIdx: vStringIdx,
+      string: vStringIdx + 1,
+      fret: vFret,
+      midi: vMidi,
+      pc: vPc,
+      pitchClass: vPc,
+      noteName: vName,
+      name: vName,
+      label: vName,
+      isOpen: vFret === 0,
+    };
+  });
+}
+
+function fnBuildIndexCombinations(vLength, vChoose) {
+  const vResult = [];
+  function fnWalk(vStart, vAcc) {
+    if (vAcc.length === vChoose) {
+      vResult.push([...vAcc]);
+      return;
+    }
+    for (let i = vStart; i < vLength; i += 1) {
+      vAcc.push(i);
+      fnWalk(i + 1, vAcc);
+      vAcc.pop();
+    }
+  }
+  fnWalk(0, []);
+  return vResult;
+}
+
+function fnBuildQuartalPitchSets({ rootPc, voices, type, reference }) {
+  const vVoices = Math.max(3, Math.min(5, parseInt(String(voices), 10) || 4));
+  const vMap = new Map();
+  const fnPush = (vPcs, vMeta = {}) => {
+    const vNorm = vPcs.map((v) => mod12(v));
+    const vKey = vNorm.join("-");
+    if (!vMap.has(vKey)) vMap.set(vKey, { pcs: vNorm, ...vMeta });
+  };
+
+  if (reference === "scale") {
+    const vMajor = [0, 2, 4, 5, 7, 9, 11].map((v) => mod12(rootPc + v));
+    for (let vDegree = 0; vDegree < 7; vDegree += 1) {
+      const vPcs = [];
+      for (let i = 0; i < vVoices; i += 1) vPcs.push(vMajor[(vDegree + i * 3) % 7]);
+      const vSteps = [];
+      for (let i = 0; i < vPcs.length - 1; i += 1) vSteps.push(mod12(vPcs[i + 1] - vPcs[i]));
+      const vPure = vSteps.every((v) => v === 5);
+      if ((type === "pure" && vPure) || (type === "mixed" && !vPure)) {
+        fnPush(vPcs, { degree: vDegree, steps: vSteps });
+      }
+    }
+  } else if (type === "pure") {
+    fnPush(Array.from({ length: vVoices }, (_, i) => mod12(rootPc + i * 5)), { steps: Array.from({ length: Math.max(0, vVoices - 1) }, () => 5) });
+  } else {
+    for (let vAlteredIdx = 0; vAlteredIdx < vVoices - 1; vAlteredIdx += 1) {
+      const vPcs = [mod12(rootPc)];
+      let vCursor = mod12(rootPc);
+      const vSteps = [];
+      for (let i = 0; i < vVoices - 1; i += 1) {
+        const vStep = i === vAlteredIdx ? 6 : 5;
+        vSteps.push(vStep);
+        vCursor = mod12(vCursor + vStep);
+        vPcs.push(vCursor);
+      }
+      fnPush(vPcs, { alteredIndex: vAlteredIdx, steps: vSteps });
+    }
+  }
+
+  if (!vMap.size) {
+    fnPush(Array.from({ length: vVoices }, (_, i) => mod12(rootPc + i * 5)), { fallback: true, steps: Array.from({ length: Math.max(0, vVoices - 1) }, () => 5) });
+  }
+
+  return Array.from(vMap.values());
+}
+
+function fnBuildQuartalFretString(vStringIndices, vFrets) {
+  const vOut = ["x", "x", "x", "x", "x", "x"];
+  vStringIndices.forEach((vStringIdx, vIdx) => {
+    vOut[5 - vStringIdx] = String(vFrets[vIdx]);
+  });
+  return vOut.join("");
+}
+
+function fnGetQuartalSpreadKind(vMidis, vSteps) {
+  const vSafeMidis = Array.isArray(vMidis) ? vMidis : [];
+  const vSafeSteps = Array.isArray(vSteps) ? vSteps : [];
+  if (vSafeMidis.length < 2) return "closed";
+
+  for (let i = 0; i < vSafeMidis.length - 1; i += 1) {
+    const vDiff = vSafeMidis[i + 1] - vSafeMidis[i];
+    const vExpected = Number(vSafeSteps[i] || 5);
+    if (vDiff !== vExpected) return "open";
+  }
+
+  return "closed";
+}
+
+function fnGenerateQuartalVoicings({ pitchSets, maxDist, allowOpenStrings, maxFret }) {
+  const vCombos = [
+    ...fnBuildIndexCombinations(6, 3),
+    ...fnBuildIndexCombinations(6, 4),
+    ...fnBuildIndexCombinations(6, 5),
+  ];
+  const vWantedSizes = new Set(pitchSets.map((v) => v.pcs.length));
+  const vResults = [];
+  const vSeen = new Set();
+  const vMaxDist = Math.max(4, Math.min(8, Number(maxDist) || 5));
+  const vMinFret = allowOpenStrings ? 0 : 1;
+  const vMaxFret = Math.max(4, Math.min(24, Number(maxFret) || 15));
+
+  for (const vPitchSet of pitchSets) {
+    const vOrderedPcs = Array.isArray(vPitchSet?.pcs) ? [...vPitchSet.pcs] : [];
+    if (!vOrderedPcs.length) continue;
+
+    for (const vCombo of vCombos) {
+      if (!vWantedSizes.has(vCombo.length) || vCombo.length !== vOrderedPcs.length) continue;
+
+      const vStrings = [...vCombo].sort((a, b) => b - a);
+      const vCandidates = vStrings.map((vStringIdx, vIdx) => {
+        const vTargetPc = vOrderedPcs[vIdx];
+        const vOpenPc = QUARTAL_OPEN_STRING_PCS[vStringIdx];
+        const vOpenMidi = QUARTAL_OPEN_STRING_MIDI[vStringIdx];
+        const vList = [];
+        for (let vFret = vMinFret; vFret <= vMaxFret; vFret += 1) {
+          if (mod12(vOpenPc + vFret) !== vTargetPc) continue;
+          vList.push({ fret: vFret, midi: vOpenMidi + vFret });
+        }
+        return vList;
+      });
+      if (vCandidates.some((v) => !v.length)) continue;
+
+      const fnWalk = (vIdx, vFrets, vMidis) => {
+        if (vIdx === vCandidates.length) {
+          const vPositive = vFrets.filter((v) => v > 0);
+          const vMin = vPositive.length ? Math.min(...vPositive) : 0;
+          const vMax = vPositive.length ? Math.max(...vPositive) : 0;
+          const vReach = vPositive.length ? (vMax - vMin + 1) : 1;
+          if (vReach > vMaxDist) return;
+
+          const vSpreadKind = fnGetQuartalSpreadKind(vMidis, vPitchSet.steps);
+          const vFretsText = fnBuildQuartalFretString(vStrings, vFrets);
+          const vKey = `${vFretsText}|${vPitchSet.pcs.join("-")}|${vSpreadKind}`;
+          if (vSeen.has(vKey)) return;
+          vSeen.add(vKey);
+
+          const vNotes = fnBuildQuartalVoicingNotes(vStrings, vFrets, vMidis, vOrderedPcs);
+          const vBass = vNotes.length
+            ? [...vNotes].sort((a, b) => a.midi - b.midi)[0]
+            : null;
+
+          vResults.push({
+            frets: vFretsText,
+            span: Math.max(0, vMax - vMin),
+            reach: vReach,
+            notes: vNotes,
+            bassKey: vBass ? `${vBass.sIdx}:${vBass.fret}` : null,
+            bassPc: vBass ? vBass.pc : null,
+            minFret: vMin,
+            maxFret: vMax,
+            pitchSpan: vMidis.length ? (Math.max(...vMidis) - Math.min(...vMidis)) : 0,
+            quartalPcs: [...vPitchSet.pcs],
+            quartalOrderedPcs: [...vOrderedPcs],
+            quartalRotation: 0,
+            quartalSpreadKind: vSpreadKind,
+            quartalSteps: Array.isArray(vPitchSet.steps) ? [...vPitchSet.steps] : [],
+            quartalDegree: typeof vPitchSet.degree === "number" ? vPitchSet.degree : null,
+            quartalReference: vPitchSet.reference || null,
+          });
+          return;
+        }
+
+        for (const vCandidate of vCandidates[vIdx]) {
+          if (vMidis.length && vCandidate.midi <= vMidis[vMidis.length - 1]) continue;
+          vFrets.push(vCandidate.fret);
+          vMidis.push(vCandidate.midi);
+          fnWalk(vIdx + 1, vFrets, vMidis);
+          vFrets.pop();
+          vMidis.pop();
+        }
+      };
+
+      fnWalk(0, [], []);
+    }
+  }
+
+  vResults.sort((a, b) => {
+    if ((a.minFret ?? 0) !== (b.minFret ?? 0)) return (a.minFret ?? 0) - (b.minFret ?? 0);
+    if ((a.reach ?? 0) !== (b.reach ?? 0)) return (a.reach ?? 0) - (b.reach ?? 0);
+    return String(a.frets || "").localeCompare(String(b.frets || ""));
+  });
+
+  return vResults;
+}
 
 const CHORD_INVERSIONS = [
   { value: "root", label: "Fundamental" },
@@ -5635,6 +6020,13 @@ export default function FretboardScalesPage() {
   // ------------------------
   const [chordRootPc, setChordRootPc] = useState(5); // F
   const [chordSpellPreferSharps, setChordSpellPreferSharps] = useState(() => preferSharpsFromMajorTonicPc(5));
+  const [chordFamily, setChordFamily] = useState("tertian");
+  const [chordQuartalType, setChordQuartalType] = useState("pure");
+  const [chordQuartalVoices, setChordQuartalVoices] = useState("4");
+  const [chordQuartalSpread, setChordQuartalSpread] = useState("closed");
+  const [chordQuartalReference, setChordQuartalReference] = useState("root");
+  const [chordQuartalVoicingIdx, setChordQuartalVoicingIdx] = useState(0);
+  const [chordQuartalSelectedFrets, setChordQuartalSelectedFrets] = useState(null);
   const [chordQuality, setChordQuality] = useState("maj");
   const [chordSuspension, setChordSuspension] = useState("none");
   const [chordStructure, setChordStructure] = useState("triad");
@@ -5986,6 +6378,13 @@ export default function FretboardScalesPage() {
     patternsMode,
     chordRootPc,
     chordSpellPreferSharps,
+    chordFamily,
+    chordQuartalType,
+    chordQuartalVoices,
+    chordQuartalSpread,
+    chordQuartalReference,
+    chordQuartalVoicingIdx,
+    chordQuartalSelectedFrets,
     chordQuality,
     chordSuspension,
     chordStructure,
@@ -6057,6 +6456,11 @@ export default function FretboardScalesPage() {
     patternsMode,
     chordRootPc,
     chordSpellPreferSharps,
+    chordFamily,
+    chordQuartalType,
+    chordQuartalVoices,
+    chordQuartalSpread,
+    chordQuartalReference,
     chordQuality,
     chordSuspension,
     chordStructure,
@@ -6170,6 +6574,13 @@ export default function FretboardScalesPage() {
 
       if ("chordRootPc" in saved) setChordRootPc(sanitizeNumberValue(saved.chordRootPc, 5, 0, 11));
       if ("chordSpellPreferSharps" in saved) setChordSpellPreferSharps(sanitizeBoolValue(saved.chordSpellPreferSharps, true));
+      if ("chordFamily" in saved) setChordFamily(sanitizeOneOf(saved.chordFamily, CHORD_FAMILIES.map((x) => x.value), "tertian"));
+      if ("chordQuartalType" in saved) setChordQuartalType(sanitizeOneOf(saved.chordQuartalType, CHORD_QUARTAL_TYPES.map((x) => x.value), "pure"));
+      if ("chordQuartalVoices" in saved) setChordQuartalVoices(sanitizeOneOf(String(saved.chordQuartalVoices), CHORD_QUARTAL_VOICES.map((x) => x.value), "4"));
+      if ("chordQuartalSpread" in saved) setChordQuartalSpread(sanitizeOneOf(saved.chordQuartalSpread, CHORD_QUARTAL_SPREADS.map((x) => x.value), "closed"));
+      if ("chordQuartalReference" in saved) setChordQuartalReference(sanitizeOneOf(saved.chordQuartalReference, CHORD_QUARTAL_REFERENCES.map((x) => x.value), "root"));
+      if ("chordQuartalVoicingIdx" in saved) setChordQuartalVoicingIdx(Math.max(0, sanitizeNumberValue(saved.chordQuartalVoicingIdx, 0, 0, 9999)));
+      if ("chordQuartalSelectedFrets" in saved) setChordQuartalSelectedFrets(typeof saved.chordQuartalSelectedFrets === "string" ? saved.chordQuartalSelectedFrets : null);
       if ("chordQuality" in saved) setChordQuality(sanitizeOneOf(saved.chordQuality, CHORD_QUALITIES.map((q) => q.value), "maj"));
       if ("chordSuspension" in saved) setChordSuspension(sanitizeOneOf(saved.chordSuspension, ["none", "sus2", "sus4"], "none"));
       if ("chordStructure" in saved) setChordStructure(sanitizeOneOf(saved.chordStructure, CHORD_STRUCTURES.map((s) => s.value), "triad"));
@@ -6462,6 +6873,115 @@ export default function FretboardScalesPage() {
     const list = chordPreferSharps ? NOTES_SHARP : NOTES_FLAT;
     return list.map((n, i) => ({ label: n, pc: i }));
   }, [chordPreferSharps]);
+
+  const chordQuartalPitchSets = useMemo(() => {
+    return fnBuildQuartalPitchSets({
+      rootPc: chordRootPc,
+      voices: chordQuartalVoices,
+      type: chordQuartalType,
+      reference: chordQuartalReference,
+    });
+  }, [chordRootPc, chordQuartalVoices, chordQuartalType, chordQuartalReference]);
+
+  const chordQuartalVoicings = useMemo(() => {
+    const all = fnGenerateQuartalVoicings({
+      pitchSets: chordQuartalPitchSets,
+      maxDist: chordMaxDist,
+      allowOpenStrings: chordAllowOpenStrings,
+      maxFret,
+    });
+
+    return all.filter((v) => {
+      const kind = v?.quartalSpreadKind || "closed";
+      return chordQuartalSpread === "open" ? kind === "open" : kind === "closed";
+    });
+  }, [chordQuartalPitchSets, chordMaxDist, chordAllowOpenStrings, chordQuartalSpread, maxFret]);
+
+  useEffect(() => {
+    if (!chordQuartalVoicings.length) {
+      setChordQuartalVoicingIdx(0);
+      setChordQuartalSelectedFrets(null);
+      return;
+    }
+
+    if (chordQuartalSelectedFrets) {
+      const idx = chordQuartalVoicings.findIndex((v) => v.frets === chordQuartalSelectedFrets);
+      if (idx >= 0) {
+        setChordQuartalVoicingIdx(idx);
+        return;
+      }
+    }
+
+    setChordQuartalVoicingIdx(0);
+    setChordQuartalSelectedFrets(chordQuartalVoicings[0].frets);
+  }, [chordQuartalVoicings, chordQuartalSelectedFrets]);
+
+  const activeQuartalVoicingRaw = chordQuartalVoicings[chordQuartalVoicingIdx] || null;
+
+  const activeQuartalVoicing = useMemo(() => {
+    if (!activeQuartalVoicingRaw) return null;
+    if (Array.isArray(activeQuartalVoicingRaw.notes)) return activeQuartalVoicingRaw;
+    return { ...activeQuartalVoicingRaw, notes: [] };
+  }, [activeQuartalVoicingRaw]);
+
+  const chordQuartalCurrentRootPc = useMemo(() => {
+    const pcs = Array.isArray(activeQuartalVoicing?.quartalOrderedPcs) && activeQuartalVoicing.quartalOrderedPcs.length
+      ? activeQuartalVoicing.quartalOrderedPcs
+      : Array.isArray(chordQuartalPitchSets?.[0]?.pcs) && chordQuartalPitchSets[0].pcs.length
+        ? chordQuartalPitchSets[0].pcs
+        : null;
+
+    return pcs ? mod12(pcs[0]) : chordRootPc;
+  }, [activeQuartalVoicing, chordQuartalPitchSets, chordRootPc]);
+
+  const chordQuartalDegreeText = useMemo(() => {
+    if (chordQuartalReference !== "scale") return "";
+    return fnBuildQuartalDegreeLabel(activeQuartalVoicing?.quartalDegree);
+  }, [chordQuartalReference, activeQuartalVoicing]);
+
+  const chordQuartalDisplayName = useMemo(() => {
+    const rootName = pcToName(chordQuartalCurrentRootPc, chordPreferSharps);
+    const typeLabel = CHORD_QUARTAL_TYPES.find((x) => x.value === chordQuartalType)?.label || "Cuartal puro";
+    return `${rootName} ${typeLabel}`;
+  }, [chordQuartalCurrentRootPc, chordPreferSharps, chordQuartalType]);
+
+  const chordQuartalUiText = useMemo(() => {
+    const voicesLabel = CHORD_QUARTAL_VOICES.find((x) => x.value === chordQuartalVoices)?.label || "4 voces";
+    const spreadLabel = CHORD_QUARTAL_SPREADS.find((x) => x.value === chordQuartalSpread)?.label || "Cerrado";
+    const tonicName = pcToName(chordRootPc, chordPreferSharps);
+    const referenceLabel = chordQuartalReference === "scale"
+      ? `Diatónico a la escala mayor de ${tonicName}`
+      : `Desde raíz de ${tonicName}`;
+    const degreeText = chordQuartalDegreeText ? ` · ${chordQuartalDegreeText}` : "";
+    return `${voicesLabel} · ${spreadLabel} · ${referenceLabel}${degreeText}`;
+  }, [chordQuartalVoices, chordQuartalSpread, chordQuartalReference, chordQuartalDegreeText, chordRootPc, chordPreferSharps]);
+
+  const chordQuartalStepText = useMemo(() => {
+    if (!activeQuartalVoicing?.quartalSteps?.length) return "";
+    return activeQuartalVoicing.quartalSteps.map((v) => (v === 6 ? "A4" : "4J")).join(" · ");
+  }, [activeQuartalVoicing]);
+
+  const chordQuartalBadgeItems = useMemo(() => {
+    const orderedPcs = Array.isArray(activeQuartalVoicing?.quartalOrderedPcs) && activeQuartalVoicing.quartalOrderedPcs.length
+      ? activeQuartalVoicing.quartalOrderedPcs
+      : (Array.isArray(chordQuartalPitchSets?.[0]?.pcs) ? chordQuartalPitchSets[0].pcs : []);
+
+    return orderedPcs.map((pc) => {
+      const interval = mod12(pc - chordQuartalCurrentRootPc);
+      const degreeRaw = intervalToSimpleChordDegreeToken(interval);
+      return {
+        note: spellNoteFromChordInterval(chordQuartalCurrentRootPc, interval, chordPreferSharps),
+        degree: formatChordBadgeDegree(degreeRaw),
+        role: chordBadgeRoleFromDegreeLabel(degreeRaw, interval),
+      };
+    });
+  }, [activeQuartalVoicing, chordQuartalPitchSets, chordQuartalCurrentRootPc, chordPreferSharps]);
+
+  const chordQuartalBassNote = useMemo(() => {
+    if (activeQuartalVoicing?.bassPc == null) return null;
+    const interval = mod12(activeQuartalVoicing.bassPc - chordQuartalCurrentRootPc);
+    return spellNoteFromChordInterval(chordQuartalCurrentRootPc, interval, chordPreferSharps);
+  }, [activeQuartalVoicing, chordQuartalCurrentRootPc, chordPreferSharps]);
 
   const chordIntervals = useMemo(
     () =>
@@ -7109,6 +7629,7 @@ export default function FretboardScalesPage() {
     setStudyTarget("main");
     if (candidate.uiPatch) {
       const p = candidate.uiPatch;
+      setChordFamily("tertian");
       setChordRootPc(p.rootPc);
       setChordSpellPreferSharps(!!p.spellPreferSharps);
       setChordQuality(p.quality);
@@ -7194,28 +7715,39 @@ export default function FretboardScalesPage() {
     if (!chordDetectSelectedCandidate) return [];
     const prefer = chordDetectSelectedCandidate.preferSharps ?? chordPreferSharps;
 
-    const visibleDegreeLabels = (Array.isArray(chordDetectSelectedCandidate.formula?.intervals)
-      ? chordDetectSelectedCandidate.formula.intervals
-          .map((intv, idx) => chordDetectSelectedCandidate.visibleIntervals.includes(mod12(intv))
-            ? String(chordDetectSelectedCandidate.formula.degreeLabels?.[idx] || "")
-            : null)
-          .filter(Boolean)
-      : []);
+    const entries = [];
 
-    const visibleNoteNames = (Array.isArray(chordDetectSelectedCandidate.formula?.intervals)
-      ? chordDetectSelectedCandidate.formula.intervals
-          .map((intv) => chordDetectSelectedCandidate.visibleIntervals.includes(mod12(intv))
-            ? spellNoteFromChordInterval(chordDetectSelectedCandidate.rootPc, intv, prefer)
-            : null)
-          .filter(Boolean)
-      : []);
+    if (Array.isArray(chordDetectSelectedCandidate.formula?.intervals)) {
+      chordDetectSelectedCandidate.formula.intervals.forEach((intv, idx) => {
+        const interval = mod12(intv);
+        if (!chordDetectSelectedCandidate.visibleIntervals.includes(interval)) return;
+        const degreeRaw = String(chordDetectSelectedCandidate.formula.degreeLabels?.[idx] || "");
+        entries.push({
+          interval,
+          item: {
+            note: spellNoteFromChordInterval(chordDetectSelectedCandidate.rootPc, interval, prefer),
+            degree: formatChordBadgeDegree(degreeRaw || intervalToSimpleChordDegreeToken(interval)),
+            role: chordBadgeRoleFromDegreeLabel(degreeRaw || intervalToSimpleChordDegreeToken(interval), interval),
+          },
+        });
+      });
+    }
 
-    return buildChordBadgeItems({
-      notes: visibleNoteNames,
-      intervals: chordDetectSelectedCandidate.visibleIntervals,
-      degreeLabels: visibleDegreeLabels,
-      structure: chordDetectSelectedCandidate.uiPatch?.structure || "triad",
-    });
+    if (chordDetectSelectedCandidate.externalBassInterval != null) {
+      const interval = mod12(chordDetectSelectedCandidate.externalBassInterval);
+      const degreeRaw = intervalToSimpleChordDegreeToken(interval);
+      entries.push({
+        interval,
+        item: {
+          note: spellNoteFromChordInterval(chordDetectSelectedCandidate.rootPc, interval, prefer),
+          degree: formatChordBadgeDegree(degreeRaw),
+          role: chordBadgeRoleFromDegreeLabel(degreeRaw, interval),
+        },
+      });
+    }
+
+    entries.sort((a, b) => a.interval - b.interval);
+    return entries.map((x) => x.item);
   }, [chordDetectSelectedCandidate, chordPreferSharps]);
 
   const chordDetectSelectedCandidateBassNote = useMemo(() => {
@@ -10094,44 +10626,77 @@ export default function FretboardScalesPage() {
                         <div>
                           <div className="text-sm font-semibold text-slate-800">
                             Acorde
-                            <span className="ml-2 text-xs font-semibold text-slate-800">{chordBaseDisplayName}</span>
+                            <span className="ml-2 text-xs font-semibold text-slate-800">{chordFamily === "quartal" ? chordQuartalDisplayName : chordBaseDisplayName}</span>
                           </div>
-                          <div className="mt-1">
-                            <ChordNoteBadgeStrip items={chordHeaderBadgeItems} bassNote={chordHeaderBassNote} colorMap={colors} />
-                          </div>
+                          {chordFamily === "quartal" ? (
+                            <>
+                              <div className="mt-1">
+                                <ChordNoteBadgeStrip items={chordQuartalBadgeItems} bassNote={chordQuartalBassNote} colorMap={colors} />
+                              </div>
+                              <div className="mt-1 text-xs text-slate-600">
+                                {chordQuartalUiText}{chordQuartalStepText ? ` · ${chordQuartalStepText}` : ""}.
+                              </div>
+                            </>
+                          ) : (
+                            <div className="mt-1">
+                              <ChordNoteBadgeStrip items={chordHeaderBadgeItems} bassNote={chordHeaderBassNote} colorMap={colors} />
+                            </div>
+                          )}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <label
-                            className="ml-[200px] inline-flex h-7 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700"
-                            title="Permite usar cuerdas al aire como opción de voicing. La distancia se calcula solo con las notas pisadas."
-                          >
-                            <span>Permitir cuerdas al aire</span>
-                            <input
-                              type="checkbox"
-                              checked={chordAllowOpenStrings}
-                              onChange={(e) => {
-                                setChordAllowOpenStrings(e.target.checked);
-                                setChordSelectedFrets(null);
-                                setChordVoicingIdx(0);
-                              }}
+                        {chordFamily !== "quartal" ? (
+                          <div className="flex items-center gap-2">
+                            <label
+                              className="ml-[200px] inline-flex h-7 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700"
                               title="Permite usar cuerdas al aire como opción de voicing. La distancia se calcula solo con las notas pisadas."
-                              className="h-4 w-4 rounded border-slate-300"
-                            />
-                          </label>
-                          <button
-                          type="button"
-                          className={UI_BTN_SM + " w-auto px-3"}
-                          title="Abre el análisis del acorde, del voicing y de sus tensiones."
-                          onClick={() => {
-                            setStudyTarget("main");
-                            setStudyOpen(true);
-                          }}
-                        >
-                          Estudiar
-                        </button>
-                        </div>
+                            >
+                              <span>Permitir cuerdas al aire</span>
+                              <input
+                                type="checkbox"
+                                checked={chordAllowOpenStrings}
+                                onChange={(e) => {
+                                  setChordAllowOpenStrings(e.target.checked);
+                                  setChordSelectedFrets(null);
+                                  setChordVoicingIdx(0);
+                                }}
+                                title="Permite usar cuerdas al aire como opción de voicing. La distancia se calcula solo con las notas pisadas."
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              className={UI_BTN_SM + " w-auto px-3"}
+                              title="Abre el análisis del acorde, del voicing y de sus tensiones."
+                              onClick={() => {
+                                setStudyTarget("main");
+                                setStudyOpen(true);
+                              }}
+                            >
+                              Estudiar
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <label
+                              className="inline-flex h-7 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700"
+                              title="Incluye cuerdas al aire en la búsqueda de voicings cuartales."
+                            >
+                              <span>Permitir cuerdas al aire</span>
+                              <input
+                                type="checkbox"
+                                checked={chordAllowOpenStrings}
+                                onChange={(e) => {
+                                  setChordAllowOpenStrings(e.target.checked);
+                                  setChordQuartalSelectedFrets(null);
+                                  setChordQuartalVoicingIdx(0);
+                                }}
+                                className="h-4 w-4 rounded border-slate-300"
+                              />
+                            </label>
+                          </div>
+                        )}
                       </div>
-                      <div className="grid items-stretch gap-2 grid-cols-[96px_210px_90px_200px_200px_130px_220px_56px]">
+                      {chordFamily === "quartal" ? (
+                        <div className="grid items-stretch gap-2 grid-cols-[96px_130px_180px_100px_120px_170px_220px_56px]">
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Tono</label>
                           <div className="mt-1 flex items-center gap-1.5">
@@ -10193,6 +10758,192 @@ export default function FretboardScalesPage() {
                             </button>
                           </div>
                           
+                        </div>
+
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM}>Familia</label>
+                          <select className={UI_SELECT_SM + " mt-1"} value={chordFamily} onChange={(e) => setChordFamily(e.target.value)}>
+                            {CHORD_FAMILIES.map((item) => (
+                              <option key={item.value} value={item.value}>{item.label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM} title={`Puro: todas las cuartas son justas (4J).
+Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>Tipo cuartal</label>
+                          <select className={UI_SELECT_SM + " mt-1"} value={chordQuartalType} onChange={(e) => setChordQuartalType(e.target.value)} title={`Puro: todas las cuartas son justas (4J).
+Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
+                            {CHORD_QUARTAL_TYPES.map((item) => (
+                              <option key={item.value} value={item.value}>{item.label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM}>Voces</label>
+                          <select className={UI_SELECT_SM + " mt-1"} value={chordQuartalVoices} onChange={(e) => setChordQuartalVoices(e.target.value)}>
+                            {CHORD_QUARTAL_VOICES.map((item) => (
+                              <option key={item.value} value={item.value}>{item.label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM} title={`Cerrado: las voces quedan apiladas por cuartas sin desplazar ninguna una octava extra.
+Abierto: una o más voces se redistribuyen por octava y la cadena deja de quedar compacta.`}>Apilado</label>
+                          <select className={UI_SELECT_SM + " mt-1"} value={chordQuartalSpread} onChange={(e) => setChordQuartalSpread(e.target.value)} title={`Cerrado: las voces quedan apiladas por cuartas sin desplazar ninguna una octava extra.
+Abierto: una o más voces se redistribuyen por octava y la cadena deja de quedar compacta.`}>
+                            {CHORD_QUARTAL_SPREADS.map((item) => (
+                              <option key={item.value} value={item.value}>{item.label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM} title={`Desde raíz: construye el acorde cuartal partiendo de la tónica elegida.
+Diatónico a la escala mayor: toma la tónica elegida como centro tonal y genera acordes cuartales por grados de su escala mayor.
+Por eso el resultado puede no tener la misma raíz elegida: por ejemplo, si eliges A, puede salir F# cuartal puro como grado VI de A mayor.`}>Referencia</label>
+                          <select className={UI_SELECT_SM + " mt-1"} value={chordQuartalReference} onChange={(e) => setChordQuartalReference(e.target.value)} title={`Desde raíz: construye el acorde cuartal partiendo de la tónica elegida.
+Diatónico a la escala mayor: toma la tónica elegida como centro tonal y genera acordes cuartales por grados de su escala mayor.
+Por eso el resultado puede no tener la misma raíz elegida: por ejemplo, si eliges A, puede salir F# cuartal puro como grado VI de A mayor.`}>
+                            {CHORD_QUARTAL_REFERENCES.map((item) => (
+                              <option key={item.value} value={item.value}>{item.label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM}>Voicing ({chordQuartalVoicings.length} opciones)</label>
+                          <div className="mt-1 flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              className={UI_BTN_SM}
+                              title="Anterior"
+                              onClick={() => {
+                                if (!chordQuartalVoicings.length) return;
+                                const vNextIdx = (chordQuartalVoicingIdx - 1 + chordQuartalVoicings.length) % chordQuartalVoicings.length;
+                                setChordQuartalVoicingIdx(vNextIdx);
+                                setChordQuartalSelectedFrets(chordQuartalVoicings[vNextIdx]?.frets ?? null);
+                              }}
+                              disabled={!chordQuartalVoicings.length}
+                            >
+                              <ChevronLeft className="h-4 w-4" />
+                            </button>
+
+                            <select
+                              className={UI_SELECT_SM + " min-w-0 flex-1 max-w-[152px]"}
+                              value={chordQuartalSelectedFrets || chordQuartalVoicings[chordQuartalVoicingIdx]?.frets || ""}
+                              onChange={(e) => {
+                                const vFrets = e.target.value;
+                                const vIdx = chordQuartalVoicings.findIndex((v) => v.frets === vFrets);
+                                if (vIdx >= 0) {
+                                  setChordQuartalVoicingIdx(vIdx);
+                                  setChordQuartalSelectedFrets(vFrets);
+                                }
+                              }}
+                              disabled={!chordQuartalVoicings.length}
+                            >
+                              {chordQuartalVoicings.map((v, i) => (
+                                <option key={`${v.frets}-${i}`} value={v.frets}>
+                                  {`${i + 1}. ${v.frets}${v.quartalDegree != null ? ` · ${fnBuildQuartalDegreeLabel(v.quartalDegree)}` : ""} (dist ${v.reach ?? (v.span + 1)})`}
+                                </option>
+                              ))}
+                            </select>
+
+                            <button
+                              type="button"
+                              className={UI_BTN_SM}
+                              title="Siguiente"
+                              onClick={() => {
+                                if (!chordQuartalVoicings.length) return;
+                                const vNextIdx = (chordQuartalVoicingIdx + 1) % chordQuartalVoicings.length;
+                                setChordQuartalVoicingIdx(vNextIdx);
+                                setChordQuartalSelectedFrets(chordQuartalVoicings[vNextIdx]?.frets ?? null);
+                              }}
+                              disabled={!chordQuartalVoicings.length}
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM}>Dist.</label>
+                          <select className={UI_SELECT_SM + " mt-1 w-full"} value={chordMaxDist} onChange={(e) => setChordMaxDist(parseInt(e.target.value, 10))}>
+                            {[4, 5, 6].map((n) => (
+                              <option key={n} value={n}>{n}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      ) : (
+                        <div className="grid items-stretch gap-2 grid-cols-[96px_130px_210px_90px_200px_200px_130px_220px_56px]">
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM}>Tono</label>
+                          <div className="mt-1 flex items-center gap-1.5">
+                            <select
+                              className={UI_SELECT_SM_TONE}
+                              value={chordUiLetterFromPc(chordRootPc, !!chordSpellPreferSharps)}
+                              onChange={(e) => {
+                                const letter = e.target.value;
+                                if (Object.prototype.hasOwnProperty.call(NATURAL_PC, letter)) {
+                                  setChordRootPc(mod12(NATURAL_PC[letter]));
+                                }
+                              }}
+                            >
+                              {LETTERS.map((l) => (
+                                <option key={l} value={l}>{l}</option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              className={`${UI_BTN_SM} ${chordAccidental && !chordSpellPreferSharps ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
+                              title="Bajar 1 semitono"
+                              onClick={() => {
+                                const letter = chordUiLetterFromPc(chordRootPc, false);
+                                const nat = mod12(NATURAL_PC[letter]);
+                                const cur = mod12(chordRootPc);
+                                if (cur !== nat) {
+                                  setChordRootPc(nat);
+                                  setChordSpellPreferSharps(false);
+                                  return;
+                                }
+                                setChordRootPc(mod12(nat - 1));
+                                setChordSpellPreferSharps(false);
+                              }}
+                            >
+                              ♭
+                            </button>
+                            <button
+                              type="button"
+                              className={`${UI_BTN_SM} ${chordAccidental && chordSpellPreferSharps ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
+                              title="Subir 1 semitono"
+                              onClick={() => {
+                                const letter = chordUiLetterFromPc(chordRootPc, true);
+                                const nat = mod12(NATURAL_PC[letter]);
+                                const cur = mod12(chordRootPc);
+                                if (cur !== nat) {
+                                  setChordRootPc(nat);
+                                  setChordSpellPreferSharps(true);
+                                  return;
+                                }
+                                setChordRootPc(mod12(nat + 1));
+                                setChordSpellPreferSharps(true);
+                              }}
+                            >
+                              ♯
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM}>Familia</label>
+                          <select className={UI_SELECT_SM + " mt-1"} value={chordFamily} onChange={(e) => setChordFamily(e.target.value)}>
+                            {CHORD_FAMILIES.map((item) => (
+                              <option key={item.value} value={item.value}>{item.label}</option>
+                            ))}
+                          </select>
                         </div>
 
                         <div className="min-w-0">
@@ -10451,6 +11202,7 @@ export default function FretboardScalesPage() {
                           </select>
                         </div>
                       </div>
+                      )}
                     </fieldset>
                   </section>
 
@@ -10499,9 +11251,23 @@ export default function FretboardScalesPage() {
                       </section>
                     </>
                   ) : (
-                    <ChordFretboard title={`Acorde ${chordSectionDisplayName}`} voicing={activeChordVoicing} voicingIdx={chordVoicingIdx} voicingTotal={Math.max(1, chordVoicings.length)} />
+                    chordFamily === "quartal" ? (
+                      activeQuartalVoicing ? (
+                        <ChordFretboard title={`Acorde ${chordQuartalDisplayName}${chordQuartalDegreeText ? ` · ${chordQuartalDegreeText}` : ""}`} voicing={activeQuartalVoicing} voicingIdx={chordQuartalVoicingIdx} voicingTotal={Math.max(1, chordQuartalVoicings.length)} />
+                      ) : (
+                        <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+                          <div className="text-sm font-semibold text-slate-800">Acorde cuartal</div>
+                          <div className="mt-1 text-xs text-slate-600">{chordQuartalDisplayName}{chordQuartalDegreeText ? ` · ${chordQuartalDegreeText}` : ""} · {chordQuartalUiText}</div>
+                          <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs text-slate-500">
+                            No he encontrado voicings cuartales con los filtros actuales. Prueba a subir la distancia o a permitir cuerdas al aire.
+                          </div>
+                        </section>
+                      )
+                    ) : (
+                      <ChordFretboard title={`Acorde ${chordSectionDisplayName}`} voicing={activeChordVoicing} voicingIdx={chordVoicingIdx} voicingTotal={Math.max(1, chordVoicings.length)} />
+                    )
                   )}
-                  <StudyPanel />
+                  {chordFamily !== "quartal" ? <StudyPanel /> : null}
 
                   {/* ACORDES CERCANOS */}
                   <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
