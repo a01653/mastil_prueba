@@ -180,7 +180,7 @@ const MANUAL_SCALE_TETRAD_PRESETS = {
 // MÁSTIL, AFINACIÓN E INLAYS
 // ============================================================================
 
-// Afinación estándar (UI: 1ª→6ª)
+// Afinación estándar (UI: 1ª?6ª)
 const STRINGS = [
   { label: "1ª (E)", pc: 4 },
   { label: "2ª (B)", pc: 11 },
@@ -320,9 +320,9 @@ function pcToDualName(pc) {
 }
 
 // ------------------------
-// Acordes UI: selector de Tono por letra + ♭/♯ (sin C#/Db en el combo)
+// Acordes UI: selector de Tono por letra + ?/? (sin C#/Db en el combo)
 // - El combo muestra solo C D E F G A B.
-// - Los botones ♭/♯ desplazan 1 semitono y fijan la “ortografía” (C# vs Db).
+// - Los botones ?/? desplazan 1 semitono y fijan la “ortografía” (C# vs Db).
 // ------------------------
 const BLACK_PC_TO_LETTER_SHARP = { 1: "C", 3: "D", 6: "F", 8: "G", 10: "A" };
 const BLACK_PC_TO_LETTER_FLAT = { 1: "D", 3: "E", 6: "G", 8: "A", 10: "B" };
@@ -951,7 +951,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "2.85";
+const APP_VERSION = "2.86";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -2078,7 +2078,7 @@ function buildDominantInfo(targetRootPc, preferSharps) {
     rootPc,
     name: `${rootName}7`,
     notes,
-    relation: `V7 → ${targetName}`,
+    relation: `V7 ? ${targetName}`,
   };
 }
 
@@ -2091,7 +2091,7 @@ function buildBackdoorDominantInfo(targetRootPc, preferSharps) {
     rootPc,
     name: `${rootName}7`,
     notes,
-    relation: `bVII7 → ${targetName}`,
+    relation: `bVII7 ? ${targetName}`,
   };
 }
 
@@ -2328,7 +2328,7 @@ function candidateProbabilityScore(candidate) {
   }
 
   score += Math.max(0, formulaSize - 3) * 1.2;
-  score += ((candidate.name || "").match(/[♯#b♭]/g) || []).length * 0.15;
+  score += ((candidate.name || "").match(/[?#b?]/g) || []).length * 0.15;
 
   return Number(score.toFixed(2));
 }
@@ -2915,8 +2915,10 @@ const CHORD_QUARTAL_SPREADS = [
 
 const CHORD_QUARTAL_REFERENCES = [
   { value: "root", label: "Desde raíz" },
-  { value: "scale", label: "Diatónico a la escala mayor" },
+  { value: "scale", label: "Diatónico a escala" },
 ];
+
+const CHORD_QUARTAL_SCALE_NAMES = Object.keys(SCALE_PRESETS).filter((name) => name !== "Personalizada");
 
 const CHORD_GUIDE_TONE_QUALITIES = [
   { value: "maj7", label: "Maj7" },
@@ -3018,7 +3020,7 @@ function fnBuildIndexCombinations(vLength, vChoose) {
   return vResult;
 }
 
-function fnBuildQuartalPitchSets({ rootPc, voices, type, reference }) {
+function fnBuildQuartalPitchSets({ rootPc, voices, type, reference, scaleName = "Mayor" }) {
   const vVoices = Math.max(3, Math.min(5, parseInt(String(voices), 10) || 4));
   const vMap = new Map();
   const fnPush = (vPcs, vMeta = {}) => {
@@ -3028,15 +3030,21 @@ function fnBuildQuartalPitchSets({ rootPc, voices, type, reference }) {
   };
 
   if (reference === "scale") {
-    const vMajor = [0, 2, 4, 5, 7, 9, 11].map((v) => mod12(rootPc + v));
-    for (let vDegree = 0; vDegree < 7; vDegree += 1) {
-      const vPcs = [];
-      for (let i = 0; i < vVoices; i += 1) vPcs.push(vMajor[(vDegree + i * 3) % 7]);
-      const vSteps = [];
-      for (let i = 0; i < vPcs.length - 1; i += 1) vSteps.push(mod12(vPcs[i + 1] - vPcs[i]));
-      const vPure = vSteps.every((v) => v === 5);
-      if ((type === "pure" && vPure) || (type === "mixed" && !vPure)) {
-        fnPush(vPcs, { degree: vDegree, steps: vSteps });
+    const vScaleIntervalsRaw = buildScaleIntervals(scaleName, "", rootPc);
+    const vScaleIntervals = Array.isArray(vScaleIntervalsRaw) ? vScaleIntervalsRaw.map((v) => mod12(v)) : [];
+    const vScale = vScaleIntervals.map((v) => mod12(rootPc + v));
+    const vScaleLen = vScale.length;
+
+    if (vScaleLen >= 3) {
+      for (let vDegree = 0; vDegree < vScaleLen; vDegree += 1) {
+        const vPcs = [];
+        for (let i = 0; i < vVoices; i += 1) vPcs.push(vScale[(vDegree + i * 3) % vScaleLen]);
+        const vSteps = [];
+        for (let i = 0; i < vPcs.length - 1; i += 1) vSteps.push(mod12(vPcs[i + 1] - vPcs[i]));
+        const vPure = vSteps.every((v) => v === 5);
+        if ((type === "pure" && vPure) || (type === "mixed" && !vPure)) {
+          fnPush(vPcs, { degree: vDegree, steps: vSteps, scaleName });
+        }
       }
     }
   } else if (type === "pure") {
@@ -3056,7 +3064,7 @@ function fnBuildQuartalPitchSets({ rootPc, voices, type, reference }) {
     }
   }
 
-  if (!vMap.size) {
+  if (!vMap.size && reference !== "scale") {
     fnPush(Array.from({ length: vVoices }, (_, i) => mod12(rootPc + i * 5)), { fallback: true, steps: Array.from({ length: Math.max(0, vVoices - 1) }, () => 5) });
   }
 
@@ -3708,7 +3716,7 @@ function build2NpsPatternsMerged({ rootPc, scaleIntervals, maxFret }) {
         deg = (deg + 1) % 5;
       }
 
-      // 2 por cuerda, 6ª→1ª
+      // 2 por cuerda, 6ª?1ª
       let idxPitch = 0;
       for (let sIdx = 5; sIdx >= 0; sIdx--) {
         const p1 = pitches[idxPitch++];
@@ -3765,7 +3773,7 @@ function build3NpsPatternsMerged({ rootPc, scaleIntervals, maxFret }) {
         deg = (deg + 1) % 7;
       }
 
-      // 3 por cuerda, 6ª→1ª (sIdx 5..0)
+      // 3 por cuerda, 6ª?1ª (sIdx 5..0)
       let idxPitch = 0;
       for (let sIdx = 5; sIdx >= 0; sIdx--) {
         const p1 = pitches[idxPitch++];
@@ -4300,8 +4308,8 @@ function inferControlTitle(el) {
 
   if (tag === "button") {
     if (ownText === "Estudiar") return "Abre el análisis del acorde, del voicing y de sus tensiones.";
-    if (ownText === "♭") return "Bajar 1 semitono";
-    if (ownText === "♯") return "Subir 1 semitono";
+    if (ownText === "?") return "Bajar 1 semitono";
+    if (ownText === "?") return "Subir 1 semitono";
     if (ownText === "Auto") return "Deja que la aplicación elija automáticamente.";
     if (ownText === "Notas") return "Muestra el nombre de las notas.";
     if (ownText === "Intervalos") return "Muestra el grado o intervalo.";
@@ -4420,7 +4428,7 @@ const ROUTE_LAB_DEFAULT_TUNING = {
 const ROUTE_LAB_FIXED_TESTS = [
   {
     id: "penta_major_f_63_110",
-    label: "Penta mayor F · 63 → 110",
+    label: "Penta mayor F · 63 ? 110",
     rootPc: 5,
     scaleName: "Pentatónica mayor",
     startCode: "63",
@@ -4434,7 +4442,7 @@ const ROUTE_LAB_FIXED_TESTS = [
   },
   {
     id: "penta_major_f_11_110",
-    label: "Penta mayor F · 11 → 110",
+    label: "Penta mayor F · 11 ? 110",
     rootPc: 5,
     scaleName: "Pentatónica mayor",
     startCode: "11",
@@ -4445,7 +4453,7 @@ const ROUTE_LAB_FIXED_TESTS = [
   },
   {
     id: "major_f_11_112",
-    label: "Mayor F · 11 → 112",
+    label: "Mayor F · 11 ? 112",
     rootPc: 5,
     scaleName: "Mayor",
     startCode: "11",
@@ -4456,7 +4464,7 @@ const ROUTE_LAB_FIXED_TESTS = [
   },
   {
     id: "minor_natural_f_61_113",
-    label: "Menor natural F · 61 → 113",
+    label: "Menor natural F · 61 ? 113",
     rootPc: 5,
     scaleName: "Menor natural",
     startCode: "61",
@@ -4467,7 +4475,7 @@ const ROUTE_LAB_FIXED_TESTS = [
   },
   {
     id: "blues_minor_f_61_17",
-    label: "Blues menor F · 61 → 17",
+    label: "Blues menor F · 61 ? 17",
     rootPc: 5,
     scaleName: "Pentatónica menor + blue note",
     startCode: "61",
@@ -4478,7 +4486,7 @@ const ROUTE_LAB_FIXED_TESTS = [
   },
   {
     id: "bebop_major_f_10_63",
-    label: "Bebop mayor F · 10 → 63",
+    label: "Bebop mayor F · 10 ? 63",
     rootPc: 5,
     scaleName: "Bebop mayor",
     startCode: "10",
@@ -4777,10 +4785,10 @@ function evaluateRouteLabFixedTest(test, tuning = ROUTE_LAB_DEFAULT_TUNING) {
   for (const check of test.checks || []) {
     const severity = check.severity || "hard";
     if (check.type === "includeSeq" && !routeLabHasAdjacentSequence(codes, check.seq)) {
-      pushFailure(severity, `Falta ${check.seq.join(" → ")}`);
+      pushFailure(severity, `Falta ${check.seq.join(" ? ")}`);
     }
     if (check.type === "excludeSeq" && routeLabHasAdjacentSequence(codes, check.seq)) {
-      pushFailure(severity, `Sobra ${check.seq.join(" → ")}`);
+      pushFailure(severity, `Sobra ${check.seq.join(" ? ")}`);
     }
     if (check.type === "excludeCode" && codes.includes(check.code)) {
       pushFailure(severity, `Incluye ${check.code}`);
@@ -4791,7 +4799,7 @@ function evaluateRouteLabFixedTest(test, tuning = ROUTE_LAB_DEFAULT_TUNING) {
     ...test,
     result,
     codes,
-    text: codes.join(" → "),
+    text: codes.join(" ? "),
     maxRun: generic.maxRun,
     reversals: generic.reversals,
     overshootCount: generic.overshootCount,
@@ -4866,7 +4874,7 @@ function buildRouteLabBenchmarkCases() {
         seen.add(key);
         asc.push({
           id: key,
-          label: `${spec.scaleName} · ${start.code} → ${end.code}`,
+          label: `${spec.scaleName} · ${start.code} ? ${end.code}`,
           rootPc: spec.rootPc,
           scaleName: spec.scaleName,
           startCode: start.code,
@@ -4880,7 +4888,7 @@ function buildRouteLabBenchmarkCases() {
     const desc = asc.map((item) => ({
       ...item,
       id: `${item.id}|desc`,
-      label: `${item.scaleName} · ${item.endCode} → ${item.startCode}`,
+      label: `${item.scaleName} · ${item.endCode} ? ${item.startCode}`,
       startCode: item.endCode,
       endCode: item.startCode,
     }));
@@ -4917,7 +4925,7 @@ function evaluateRouteLabBenchmarkCase(test, tuning = ROUTE_LAB_DEFAULT_TUNING) 
   return {
     ...test,
     result,
-    text: routeLabCodesFromPath(result.path).join(" → "),
+    text: routeLabCodesFromPath(result.path).join(" ? "),
     maxRun: generic.maxRun,
     reversals: generic.reversals,
     overshootCount: generic.overshootCount,
@@ -5723,7 +5731,7 @@ function midiToSpelledPitch(midi, preferSharps) {
   const name = pcToName(pc, preferSharps);
   const letter = name[0] || "C";
   const accidentalRaw = name.slice(1);
-  const accidental = accidentalRaw === "#" ? "♯" : accidentalRaw === "b" ? "♭" : accidentalRaw;
+  const accidental = accidentalRaw === "#" ? "?" : accidentalRaw === "b" ? "?" : accidentalRaw;
   const octave = Math.floor(midi / 12) - 1;
   return { midi, name, letter, accidental, octave };
 }
@@ -5786,7 +5794,7 @@ function keySignatureLetterAccidentals(keySignature) {
   if (!type || !count) return map;
 
   const letters = KEY_SIGNATURE_LETTER_ORDER[type] || [];
-  const accidental = type === "sharp" ? "♯" : "♭";
+  const accidental = type === "sharp" ? "?" : "?";
   letters.slice(0, count).forEach((letter) => map.set(letter, accidental));
   return map;
 }
@@ -5795,7 +5803,7 @@ function displayedAccidentalForNote(note, signatureMap) {
   const keyAccidental = signatureMap?.get(note.letter) || "";
   const noteAccidental = note.accidental || "";
   if (noteAccidental === keyAccidental) return "";
-  if (!noteAccidental && keyAccidental) return "♮";
+  if (!noteAccidental && keyAccidental) return "?";
   return noteAccidental;
 }
 
@@ -5888,7 +5896,7 @@ function MusicStaff({ events, preferSharps, clefMode = "guitar", beatsPerBar = 4
   const staffTop = 28;
   const signatureType = keySignature?.type || null;
   const signatureCount = Math.max(0, Math.min(7, Number(keySignature?.count) || 0));
-  const signatureGlyph = signatureType === "sharp" ? "♯" : signatureType === "flat" ? "♭" : "";
+  const signatureGlyph = signatureType === "sharp" ? "?" : signatureType === "flat" ? "?" : "";
   const signatureSteps = signatureType ? keySignatureStepsForClef(clef, signatureType).slice(0, signatureCount) : [];
   const signatureWidth = signatureSteps.length ? (signatureSteps.length * 11) + 8 : 0;
   const signatureMap = keySignatureLetterAccidentals(keySignature);
@@ -5903,7 +5911,7 @@ function MusicStaff({ events, preferSharps, clefMode = "guitar", beatsPerBar = 4
   const measures = Math.max(1, Math.ceil(safeEvents.length / beatsPerBar));
   const width = leftPad + (measures * measureWidth) + rightPad;
   const staffBottom = staffTop + (lineGap * 4);
-  const clefGlyph = clef === "bass" ? "𝄢" : "𝄞";
+  const clefGlyph = clef === "bass" ? "??" : "??";
 
   const renderedEvents = safeEvents.map((evt, idx) => {
     const measureIdx = Math.floor(idx / beatsPerBar);
@@ -6090,6 +6098,7 @@ export default function FretboardScalesPage() {
   const [chordQuartalVoices, setChordQuartalVoices] = useState("4");
   const [chordQuartalSpread, setChordQuartalSpread] = useState("closed");
   const [chordQuartalReference, setChordQuartalReference] = useState("root");
+  const [chordQuartalScaleName, setChordQuartalScaleName] = useState("Mayor");
   const [chordQuartalVoicingIdx, setChordQuartalVoicingIdx] = useState(0);
   const [chordQuartalSelectedFrets, setChordQuartalSelectedFrets] = useState(null);
   const [guideToneQuality, setGuideToneQuality] = useState("maj7");
@@ -6453,6 +6462,7 @@ export default function FretboardScalesPage() {
     chordQuartalVoices,
     chordQuartalSpread,
     chordQuartalReference,
+    chordQuartalScaleName,
     chordQuartalVoicingIdx,
     chordQuartalSelectedFrets,
     guideToneQuality,
@@ -6536,6 +6546,7 @@ export default function FretboardScalesPage() {
     chordQuartalVoices,
     chordQuartalSpread,
     chordQuartalReference,
+    chordQuartalScaleName,
     guideToneQuality,
     guideToneForm,
     guideToneInversion,
@@ -6659,6 +6670,7 @@ export default function FretboardScalesPage() {
       if ("chordQuartalVoices" in saved) setChordQuartalVoices(sanitizeOneOf(String(saved.chordQuartalVoices), CHORD_QUARTAL_VOICES.map((x) => x.value), "4"));
       if ("chordQuartalSpread" in saved) setChordQuartalSpread(sanitizeOneOf(saved.chordQuartalSpread, CHORD_QUARTAL_SPREADS.map((x) => x.value), "closed"));
       if ("chordQuartalReference" in saved) setChordQuartalReference(sanitizeOneOf(saved.chordQuartalReference, CHORD_QUARTAL_REFERENCES.map((x) => x.value), "root"));
+      if ("chordQuartalScaleName" in saved) setChordQuartalScaleName(sanitizeOneOf(normalizeScaleName(saved.chordQuartalScaleName), CHORD_QUARTAL_SCALE_NAMES, "Mayor"));
       if ("chordQuartalVoicingIdx" in saved) setChordQuartalVoicingIdx(Math.max(0, sanitizeNumberValue(saved.chordQuartalVoicingIdx, 0, 0, 9999)));
       if ("chordQuartalSelectedFrets" in saved) setChordQuartalSelectedFrets(typeof saved.chordQuartalSelectedFrets === "string" ? saved.chordQuartalSelectedFrets : null);
       if ("guideToneQuality" in saved) setGuideToneQuality(sanitizeOneOf(saved.guideToneQuality, CHORD_GUIDE_TONE_QUALITIES.map((q) => q.value), "maj7"));
@@ -6965,8 +6977,9 @@ export default function FretboardScalesPage() {
       voices: chordQuartalVoices,
       type: chordQuartalType,
       reference: chordQuartalReference,
+      scaleName: chordQuartalScaleName,
     });
-  }, [chordRootPc, chordQuartalVoices, chordQuartalType, chordQuartalReference]);
+  }, [chordRootPc, chordQuartalVoices, chordQuartalType, chordQuartalReference, chordQuartalScaleName]);
 
   const chordQuartalVoicings = useMemo(() => {
     const all = fnGenerateQuartalVoicings({
@@ -7035,11 +7048,11 @@ export default function FretboardScalesPage() {
     const spreadLabel = CHORD_QUARTAL_SPREADS.find((x) => x.value === chordQuartalSpread)?.label || "Cerrado";
     const tonicName = pcToName(chordRootPc, chordPreferSharps);
     const referenceLabel = chordQuartalReference === "scale"
-      ? `Diatónico a la escala mayor de ${tonicName}`
+      ? `Diatónico a la escala ${chordQuartalScaleName} de ${tonicName}`
       : `Desde raíz de ${tonicName}`;
     const degreeText = chordQuartalDegreeText ? ` · ${chordQuartalDegreeText}` : "";
     return `${voicesLabel} · ${spreadLabel} · ${referenceLabel}${degreeText}`;
-  }, [chordQuartalVoices, chordQuartalSpread, chordQuartalReference, chordQuartalDegreeText, chordRootPc, chordPreferSharps]);
+  }, [chordQuartalVoices, chordQuartalSpread, chordQuartalReference, chordQuartalScaleName, chordQuartalDegreeText, chordRootPc, chordPreferSharps]);
 
   const chordQuartalStepText = useMemo(() => {
     if (!activeQuartalVoicing?.quartalSteps?.length) return "";
@@ -9087,7 +9100,7 @@ export default function FretboardScalesPage() {
   }, [routeLabResult.path]);
 
   const routeLabText = useMemo(
-    () => routeLabResult.path.map((n) => `${n.sIdx + 1}${n.fret}`).join(" → "),
+    () => routeLabResult.path.map((n) => `${n.sIdx + 1}${n.fret}`).join(" ? "),
     [routeLabResult.path]
   );
 
@@ -9104,7 +9117,7 @@ export default function FretboardScalesPage() {
   const routeLabDebugLines = useMemo(() => {
     return (routeLabResult.debugSteps || []).map((step, idx) => {
       const chunks = [];
-      chunks.push(`${idx + 1}. ${step.from} → ${step.to}`);
+      chunks.push(`${idx + 1}. ${step.from} ? ${step.to}`);
       chunks.push(step.sameString ? `misma cuerda · ${step.df} trastes` : `cambio cuerda ${step.ds} · ${step.df} trastes`);
       chunks.push(`bloque=${step.runCount}`);
       chunks.push(`corredor=${step.corridorDev}`);
@@ -9352,23 +9365,54 @@ export default function FretboardScalesPage() {
     );
   }
 
-  function ChordCircle({ pc, role, fret, sIdx, isBass }) {
-    const bg = colors[role] || colors.other;
-    const dark = isDark(bg);
-    return (
-      <div
-        className="relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold"
-        style={{
-          backgroundColor: bg,
-          color: role === "other" ? "#0f172a" : dark ? "#ffffff" : "#0f172a",
-          boxShadow: isBass ? `inset 0 0 0 2px ${rgba("#000000", 0.95)}` : `0 0 0 2px ${rgba(bg, 0.25)}`,
-        }}
-        title={`${chordPcToSpelledName(pc)} · ${intervalToChordToken(mod12(pc - chordRootPc), { ext6: chordExt6, ext9: chordExt9 && chordStructure !== "triad", ext11: chordExt11 && chordStructure !== "triad", ext13: chordExt13 && chordStructure !== "triad" })}${isBass ? " · bajo" : ""}`}
-      >
-        {labelForChordPc(pc)}
-      </div>
-    );
+  function quartalRoleOfPc(pc) {
+    const interval = mod12(pc - chordQuartalCurrentRootPc);
+    const degreeRaw = intervalToSimpleChordDegreeToken(interval);
+    return chordBadgeRoleFromDegreeLabel(degreeRaw, interval);
   }
+
+  function labelForQuartalPc(pc) {
+    const interval = mod12(pc - chordQuartalCurrentRootPc);
+    const degreeRaw = intervalToSimpleChordDegreeToken(interval);
+    const degree = formatChordBadgeDegree(degreeRaw);
+    const note = spellNoteFromChordInterval(chordQuartalCurrentRootPc, interval, chordPreferSharps);
+
+    const showI = !!showIntervalsLabel;
+    const showN = !!showNotesLabel;
+
+    if (!showI && !showN) return degree;
+    if (showI && showN) return `${degree}-${note}`;
+    if (showI) return degree;
+    return note;
+  }
+
+  function quartalNoteNameForPc(pc) {
+    const interval = mod12(pc - chordQuartalCurrentRootPc);
+    return spellNoteFromChordInterval(chordQuartalCurrentRootPc, interval, chordPreferSharps);
+  }
+
+function ChordCircle({ role, isBass, displayLabel, titleText }) {
+  const bg = colors[role] || colors.other;
+  const dark = isDark(bg);
+
+  return (
+    <div
+      className="relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold"
+      style={{
+        backgroundColor: bg,
+        color: role === "other" ? "#0f172a" : dark ? "#ffffff" : "#0f172a",
+        boxShadow: isBass
+          ? `inset 0 0 0 2px ${rgba("#000000", 0.95)}`
+          : `0 0 0 2px ${rgba(bg, 0.25)}`,
+      }}
+      title={titleText}
+    >
+      {displayLabel}
+    </div>
+  );
+}
+
+
 
   function guideToneRoleOfPc(pc) {
     const interval = mod12(pc - chordRootPc);
@@ -9415,79 +9459,121 @@ export default function FretboardScalesPage() {
   // COMPONENTES UI INTERNOS: ACORDES Y DETECCIÓN
   // --------------------------------------------------------------------------
 
-  function ChordFretboard({ title, voicing, voicingIdx, voicingTotal }) {
-    const notesMap = useMemo(() => {
-      const m = new Map();
-      if (!voicing?.notes?.length) return m;
-      for (const n of voicing.notes) {
-        m.set(`${n.sIdx}:${n.fret}`, {
-          pc: n.pc,
-          isBass: `${n.sIdx}:${n.fret}` === voicing.bassKey,
-        });
-      }
-      return m;
-    }, [voicing]);
+function ChordFretboard({
+  title,
+  subtitle = "",
+  voicing,
+  voicingIdx,
+  voicingTotal,
+  roleForPc = chordRoleOfPc,
+  labelForPc = labelForChordPc,
+  noteNameForPc = chordPcToSpelledName,
+}) {
+  const notesMap = useMemo(() => {
+    const m = new Map();
+    if (!voicing?.notes?.length) return m;
+    for (const n of voicing.notes) {
+      m.set(`${n.sIdx}:${n.fret}`, {
+        pc: n.pc,
+        isBass: `${n.sIdx}:${n.fret}` === voicing.bassKey,
+      });
+    }
+    return m;
+  }, [voicing]);
 
-    const mutedStrings = useMemo(
-      () => new Set(Array.isArray(voicing?.mutedSIdx) ? voicing.mutedSIdx : []),
-      [voicing]
-    );
+  const mutedStrings = useMemo(
+    () => new Set(Array.isArray(voicing?.mutedSIdx) ? voicing.mutedSIdx : []),
+    [voicing]
+  );
 
-    const noteText = voicing
-      ? [...voicing.notes]
-          .sort((a, b) => pitchAt(a.sIdx, a.fret) - pitchAt(b.sIdx, b.fret))
-          .map((n) => chordPcToSpelledName(n.pc))
-          .join(" – ")
-      : "";
+  const noteText = voicing
+    ? [...voicing.notes]
+        .sort((a, b) => pitchAt(a.sIdx, a.fret) - pitchAt(b.sIdx, b.fret))
+        .map((n) => noteNameForPc(n.pc))
+        .join(" – ")
+    : "";
 
-    return (
-      <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="text-sm font-semibold text-slate-800">{title}</div>
-            <div className="text-xs text-slate-600">{voicing ? `Notas: ${noteText}. Bajo marcado con anillo negro.` : "No hay voicings para esta selección."}</div>
+  return (
+    <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-slate-800">{title}</div>
+          <div className="text-xs text-slate-600">
+            {voicing ? `Notas: ${noteText}. Bajo marcado con anillo negro.` : "No hay voicings para esta selección."}
           </div>
-          {voicing ? <div className="text-xs text-slate-600">Voicing {Math.min(voicingIdx + 1, voicingTotal)}/{voicingTotal}: <b>{voicing.frets}</b></div> : null}
+          {subtitle ? <div className="text-xs text-slate-600">{subtitle}</div> : null}
         </div>
 
-        <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
-          <div className="text-xs font-semibold text-slate-600">Cuerda</div>
-          {Array.from({ length: maxFret + 1 }, (_, fret) => (
-            <div key={fret} className="relative flex flex-col items-center">
-              <div className="text-[10px] text-slate-600">{fret}</div>
-            </div>
-          ))}
-        </div>
+        {voicing ? (
+          <div className="text-xs text-slate-600">
+            Voicing {Math.min(voicingIdx + 1, voicingTotal)}/{voicingTotal}: <b>{voicing.frets}</b>
+          </div>
+        ) : null}
+      </div>
 
-        <div className="mt-2 space-y-1">
-          {STRINGS.map((st, sIdx) => (
-            <div key={st.label} className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
-              <div className="text-xs font-medium text-slate-700">{st.label}</div>
-              {Array.from({ length: maxFret + 1 }, (_, fret) => {
-                const cellKey = `${sIdx}:${fret}`;
-                const item = notesMap.get(cellKey);
-                return (
-                  <div
-                    key={`${sIdx}-${fret}`}
-                    className={`group relative isolate flex h-8 overflow-visible items-center justify-center rounded-lg border ${fret === 0 ? "border-slate-300" : "border-slate-200"} ${item ? "z-[4]" : "z-0"}`}
-                    style={{ backgroundColor: FRET_CELL_BG }}
-                  >
-                    <HoverCellNote sIdx={sIdx} fret={fret} visible={!item} />
-                    {hasInlayCell(fret, sIdx) ? (
-                      <div className="pointer-events-none absolute left-1/2 z-0 -translate-x-1/2 -translate-y-1/2" style={{ top: "78%" }}>
-                        <div className="h-4 w-4 rounded-full bg-slate-300 opacity-80" />
-                      </div>
-                    ) : null}
-                    {item ? <ChordCircle pc={item.pc} role={chordRoleOfPc(item.pc)} fret={fret} sIdx={sIdx} isBass={item.isBass} /> : (fret === 0 && mutedStrings.has(sIdx) ? <span className="text-xs font-semibold text-slate-400">X</span> : (showNonScale ? <div className="text-[10px] text-slate-400">{labelForCellAt(sIdx, fret)}</div> : null))}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </section>
-    );
-  }
+      <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
+        <div className="text-xs font-semibold text-slate-600">Cuerda</div>
+        {Array.from({ length: maxFret + 1 }, (_, fret) => (
+          <div key={fret} className="relative flex flex-col items-center">
+            <div className="text-[10px] text-slate-600">{fret}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-2 space-y-1">
+        {STRINGS.map((st, sIdx) => (
+          <div
+            key={st.label}
+            className="grid items-center gap-1"
+            style={{ gridTemplateColumns: fretGridCols(maxFret) }}
+          >
+            <div className="text-xs font-medium text-slate-700">{st.label}</div>
+
+            {Array.from({ length: maxFret + 1 }, (_, fret) => {
+              const cellKey = `${sIdx}:${fret}`;
+              const item = notesMap.get(cellKey);
+
+              return (
+                <div
+                  key={`${sIdx}-${fret}`}
+                  className={`group relative isolate flex h-8 overflow-visible items-center justify-center rounded-lg border ${
+                    fret === 0 ? "border-slate-300" : "border-slate-200"
+                  } ${item ? "z-[4]" : "z-0"}`}
+                  style={{ backgroundColor: FRET_CELL_BG }}
+                >
+                  <HoverCellNote sIdx={sIdx} fret={fret} visible={!item} />
+
+                  {hasInlayCell(fret, sIdx) ? (
+                    <div
+                      className="pointer-events-none absolute left-1/2 z-0 -translate-x-1/2 -translate-y-1/2"
+                      style={{ top: "78%" }}
+                    >
+                      <div className="h-4 w-4 rounded-full bg-slate-300 opacity-80" />
+                    </div>
+                  ) : null}
+
+                  {item ? (
+                    <ChordCircle
+                      role={roleForPc(item.pc)}
+                      isBass={item.isBass}
+                      displayLabel={labelForPc(item.pc)}
+                      titleText={`${noteNameForPc(item.pc)}${item.isBass ? " · bajo" : ""}`}
+                    />
+                  ) : fret === 0 && mutedStrings.has(sIdx) ? (
+                    <span className="text-xs font-semibold text-slate-400">X</span>
+                  ) : showNonScale ? (
+                    <div className="text-[10px] text-slate-400">{labelForCellAt(sIdx, fret)}</div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 
   function ChordInvestigationCircle({ pc, fret, sIdx, candidate, isBass }) {
     const role = buildDetectedCandidateRoleForPc(pc, candidate);
@@ -10119,7 +10205,7 @@ export default function FretboardScalesPage() {
               <span className="font-semibold text-rose-600">{routeLabResult.reason}</span>
             ) : (
               <span>
-                Ruta: {routeLabStartCode} → {routeLabEndCode} | pasos: <b>{routeLabResult.path.length}</b>
+                Ruta: {routeLabStartCode} ? {routeLabEndCode} | pasos: <b>{routeLabResult.path.length}</b>
               </span>
             )}
           </div>
@@ -10224,7 +10310,7 @@ export default function FretboardScalesPage() {
             </>
           ) : null}
 
-	  {routeStaffEvents.length ? (
+    {routeStaffEvents.length ? (
             <div className="mt-3">
               <div className="mb-1 text-xs font-semibold text-slate-700">Pentagrama 4/4</div>
               <MusicStaff events={routeStaffEvents} preferSharps={preferSharps} clefMode="guitar" keySignature={routeKeySignature} />
@@ -10282,7 +10368,7 @@ export default function FretboardScalesPage() {
                 <span className="font-semibold text-rose-600">{routeResult.reason}</span>
               ) : (
                 <span>
-                  Ruta: {routeStartCode} → {routeEndCode} | pasos: <b>{routeResult.path.length}</b>
+                  Ruta: {routeStartCode} ? {routeEndCode} | pasos: <b>{routeResult.path.length}</b>
                 </span>
               )}
             </div>
@@ -10531,7 +10617,7 @@ export default function FretboardScalesPage() {
   const UI_HELP_SM = "text-[11px] text-slate-500";
   const UI_EXT_GRID = "mt-1 grid grid-cols-3 gap-x-3 gap-y-1 text-xs";
 
-  // Estado visual de ♭/♯ (solo para acordes): si la tónica es nota negra, resaltamos ♭ o ♯ según la ortografía.
+  // Estado visual de ?/? (solo para acordes): si la tónica es nota negra, resaltamos ? o ? según la ortografía.
   const chordAccidental = !NATURAL_PCS.has(mod12(chordRootPc));
 
   const scaleOptions = useMemo(
@@ -10645,7 +10731,7 @@ export default function FretboardScalesPage() {
                       <button
                         type="button"
                         className={`${UI_BTN_SM} ${scaleRootAcc === "flat" ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
-                        title="Bajar 1 semitono (♭). Si ya está alterado, vuelve a natural."
+                        title="Bajar 1 semitono (?). Si ya está alterado, vuelve a natural."
                         onClick={() => {
                           const nat = mod12(NATURAL_PC[scaleRootLetter]);
                           if (scaleRootAcc === "flat") {
@@ -10657,13 +10743,13 @@ export default function FretboardScalesPage() {
                           setRootPc(mod12(nat - 1));
                         }}
                       >
-                        ♭
+                        ?
                       </button>
 
                       <button
                         type="button"
                         className={`${UI_BTN_SM} ${scaleRootAcc === "sharp" ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
-                        title="Subir 1 semitono (♯). Si ya está alterado, vuelve a natural."
+                        title="Subir 1 semitono (?). Si ya está alterado, vuelve a natural."
                         onClick={() => {
                           const nat = mod12(NATURAL_PC[scaleRootLetter]);
                           if (scaleRootAcc === "sharp") {
@@ -10675,7 +10761,7 @@ export default function FretboardScalesPage() {
                           setRootPc(mod12(nat + 1));
                         }}
                       >
-                        ♯
+                        ?
                       </button>
                     </div>
                   </div>
@@ -10687,7 +10773,7 @@ export default function FretboardScalesPage() {
                       <ToggleButton
                         active={accMode === "auto"}
                         onClick={() => setAccMode("auto")}
-                        title="Auto usa la armadura esperada (ej. F mayor → Bb, no A#)."
+                        title="Auto usa la armadura esperada (ej. F mayor ? Bb, no A#)."
                       >
                         Auto
                       </ToggleButton>
@@ -11054,7 +11140,7 @@ export default function FretboardScalesPage() {
                                 setChordSpellPreferSharps(false);
                               }}
                             >
-                              ♭
+                              ?
                             </button>
                             <button
                               type="button"
@@ -11073,7 +11159,7 @@ export default function FretboardScalesPage() {
                                 setChordSpellPreferSharps(true);
                               }}
                             >
-                              ♯
+                              ?
                             </button>
                           </div>
                           
@@ -11121,16 +11207,32 @@ Abierto: una o más voces se redistribuyen por octava y la cadena deja de quedar
 
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM} title={`Desde raíz: construye el acorde cuartal partiendo de la tónica elegida.
-Diatónico a la escala mayor: toma la tónica elegida como centro tonal y genera acordes cuartales por grados de su escala mayor.
-Por eso el resultado puede no tener la misma raíz elegida: por ejemplo, si eliges A, puede salir F# cuartal puro como grado VI de A mayor.`}>Referencia</label>
+Diatónico a escala: toma la tónica elegida como centro tonal y genera acordes cuartales por grados de la escala que selecciones.
+Por eso el resultado puede no tener la misma raíz elegida.`}>Referencia</label>
                           <select className={UI_SELECT_SM + " mt-1"} value={chordQuartalReference} onChange={(e) => setChordQuartalReference(e.target.value)} title={`Desde raíz: construye el acorde cuartal partiendo de la tónica elegida.
-Diatónico a la escala mayor: toma la tónica elegida como centro tonal y genera acordes cuartales por grados de su escala mayor.
-Por eso el resultado puede no tener la misma raíz elegida: por ejemplo, si eliges A, puede salir F# cuartal puro como grado VI de A mayor.`}>
+Diatónico a escala: toma la tónica elegida como centro tonal y genera acordes cuartales por grados de la escala que selecciones.
+Por eso el resultado puede no tener la misma raíz elegida.`}>
                             {CHORD_QUARTAL_REFERENCES.map((item) => (
                               <option key={item.value} value={item.value}>{item.label}</option>
                             ))}
                           </select>
                         </div>
+
+                        {chordQuartalReference === "scale" ? (
+                          <div className="min-w-0">
+                            <label className={UI_LABEL_SM}>Escala</label>
+                            <select
+                              className={UI_SELECT_SM + " mt-1"}
+                              value={chordQuartalScaleName}
+                              onChange={(e) => setChordQuartalScaleName(e.target.value)}
+                              title="Escala usada para generar los cuartales diatónicos"
+                            >
+                              {CHORD_QUARTAL_SCALE_NAMES.map((item) => (
+                                <option key={item} value={item}>{item}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : null}
 
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Voicing ({chordQuartalVoicings.length} opciones)</label>
@@ -11231,7 +11333,7 @@ Por eso el resultado puede no tener la misma raíz elegida: por ejemplo, si elig
                                   setChordRootPc(mod12(nat - 1));
                                   setChordSpellPreferSharps(false);
                                 }}
-                              >♭</button>
+                              >?</button>
                               <button
                                 type="button"
                                 className={`${UI_BTN_SM} ${chordAccidental && chordSpellPreferSharps ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
@@ -11248,7 +11350,7 @@ Por eso el resultado puede no tener la misma raíz elegida: por ejemplo, si elig
                                   setChordRootPc(mod12(nat + 1));
                                   setChordSpellPreferSharps(true);
                                 }}
-                              >♯</button>
+                              >?</button>
                             </div>
                           </div>
 
@@ -11388,7 +11490,7 @@ Por eso el resultado puede no tener la misma raíz elegida: por ejemplo, si elig
                                 setChordSpellPreferSharps(false);
                               }}
                             >
-                              ♭
+                              ?
                             </button>
                             <button
                               type="button"
@@ -11407,7 +11509,7 @@ Por eso el resultado puede no tener la misma raíz elegida: por ejemplo, si elig
                                 setChordSpellPreferSharps(true);
                               }}
                             >
-                              ♯
+                              ?
                             </button>
                           </div>
                         </div>
@@ -11727,32 +11829,54 @@ Por eso el resultado puede no tener la misma raíz elegida: por ejemplo, si elig
                     </>
                   ) : (
                     chordFamily === "quartal" ? (
-                      activeQuartalVoicing ? (
-                        <ChordFretboard title={`Acorde ${chordQuartalDisplayName}${chordQuartalDegreeText ? ` · ${chordQuartalDegreeText}` : ""}`} voicing={activeQuartalVoicing} voicingIdx={chordQuartalVoicingIdx} voicingTotal={Math.max(1, chordQuartalVoicings.length)} />
-                      ) : (
-                        <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
-                          <div className="text-sm font-semibold text-slate-800">Acorde cuartal</div>
-                          <div className="mt-1 text-xs text-slate-600">{chordQuartalDisplayName}{chordQuartalDegreeText ? ` · ${chordQuartalDegreeText}` : ""} · {chordQuartalUiText}</div>
-                          <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs text-slate-500">
-                            No he encontrado voicings cuartales con los filtros actuales. Prueba a subir la distancia o a permitir cuerdas al aire.
-                          </div>
-                        </section>
-                      )
-                    ) : chordFamily === "guide_tones" ? (
-                      activeGuideToneVoicing ? (
-                        <GuideToneFretboard title={`Acorde ${guideToneSectionDisplayName}`} voicing={activeGuideToneVoicing} voicingIdx={guideToneVoicingIdx} voicingTotal={Math.max(1, guideToneVoicings.length)} />
-                      ) : (
-                        <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
-                          <div className="text-sm font-semibold text-slate-800">Notas guía</div>
-                          <div className="mt-1 text-xs text-slate-600">{guideToneSectionDisplayName}</div>
-                          <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs text-slate-500">
-                            No he encontrado shells de notas guía con los filtros actuales. Prueba a cambiar forma, inversión o distancia.
-                          </div>
-                        </section>
-                      )
-                    ) : (
-                      <ChordFretboard title={`Acorde ${chordSectionDisplayName}`} voicing={activeChordVoicing} voicingIdx={chordVoicingIdx} voicingTotal={Math.max(1, chordVoicings.length)} />
-                    )
+                    activeQuartalVoicing ? (
+                        <ChordFretboard title={`Acorde ${chordQuartalDisplayName}${chordQuartalDegreeText ? ` · ${chordQuartalDegreeText}` : ""}`}  subtitle={chordQuartalUiText} voicing={activeQuartalVoicing}
+                          voicingIdx={chordQuartalVoicingIdx}
+			  voicingTotal={Math.max(1, chordQuartalVoicings.length)}
+			  roleForPc={quartalRoleOfPc}
+			  labelForPc={labelForQuartalPc}
+			  noteNameForPc={quartalNoteNameForPc}
+			/>
+  ) : (
+    <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+      <div className="text-sm font-semibold text-slate-800">Acorde cuartal</div>
+      <div className="mt-1 text-xs text-slate-600">
+        {chordQuartalDisplayName}
+        {chordQuartalDegreeText ? ` · ${chordQuartalDegreeText}` : ""}
+        {" · "}
+        {chordQuartalUiText}
+      </div>
+      <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs text-slate-500">
+        No he encontrado voicings cuartales con los filtros actuales. Prueba a subir la distancia o a permitir cuerdas al aire.
+      </div>
+    </section>
+  )
+) : chordFamily === "guide_tones" ? (
+  activeGuideToneVoicing ? (
+    <GuideToneFretboard
+      title={`Acorde ${guideToneSectionDisplayName}`}
+      voicing={activeGuideToneVoicing}
+      voicingIdx={guideToneVoicingIdx}
+      voicingTotal={Math.max(1, guideToneVoicings.length)}
+    />
+  ) : (
+    <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+      <div className="text-sm font-semibold text-slate-800">Notas guía</div>
+      <div className="mt-1 text-xs text-slate-600">{guideToneSectionDisplayName}</div>
+      <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs text-slate-500">
+        No he encontrado shells de notas guía con los filtros actuales. Prueba a cambiar forma, inversión o distancia.
+      </div>
+    </section>
+  )
+) : (
+  <ChordFretboard
+    title={`Acorde ${chordSectionDisplayName}`}
+    voicing={activeChordVoicing}
+    voicingIdx={chordVoicingIdx}
+    voicingTotal={Math.max(1, chordVoicings.length)}
+  />
+)
+
                   )}
                   {chordFamily === "tertian" ? <StudyPanel /> : null}
 
@@ -11828,7 +11952,7 @@ Por eso el resultado puede no tener la misma raíz elegida: por ejemplo, si elig
                                 <span>Acorde {idx + 1}{nearComputed.baseIdx === idx ? " (referencia)" : ""}</span>
                                 <span className="text-xs font-semibold text-slate-800">{slotDisplayName}</span>
                                 <span className="text-xs font-normal text-slate-600">(Notas: {notes})</span>
-			
+      
                               </div>
 
                               <div className="flex items-center gap-2">
@@ -11912,7 +12036,7 @@ Por eso el resultado puede no tener la misma raíz elegida: por ejemplo, si elig
                                       updateNearSlot(idx, { rootPc: mod12(nat - 1), selFrets: null, spellPreferSharps: false });
                                     }}
                                     disabled={disableAll}
-                                  >♭</button>
+                                  >?</button>
                                   <button
                                     type="button"
                                     className={`${UI_BTN_SM} ${(!NATURAL_PCS.has(mod12(slot.rootPc)) && slot.spellPreferSharps) ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
@@ -11928,7 +12052,7 @@ Por eso el resultado puede no tener la misma raíz elegida: por ejemplo, si elig
                                       updateNearSlot(idx, { rootPc: mod12(nat + 1), selFrets: null, spellPreferSharps: true });
                                     }}
                                     disabled={disableAll}
-                                  >♯</button>
+                                  >?</button>
                                 </div>
                               </div>
 
