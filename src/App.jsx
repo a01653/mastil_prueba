@@ -6502,14 +6502,6 @@ export default function FretboardScalesPage() {
     routeLabWorseThanSameStringGoalScale,
     routeLabCorridorPenalty,
     routeLabOvershootNearEndAlt,
-    routeLabStartCode,
-    routeLabEndCode,
-    routeLabMaxPerString,
-    routeLabSwitchWhenSameStringForwardPenalty,
-    routeLabWorseThanSameStringGoalBase,
-    routeLabWorseThanSameStringGoalScale,
-    routeLabCorridorPenalty,
-    routeLabOvershootNearEndAlt,
     routeMode,
     routePreferNps,
     routePreferVertical,
@@ -9627,6 +9619,11 @@ function ChordFretboard({
           <div>
             <div className="text-sm font-semibold text-slate-800">{title}</div>
             <div className="text-xs text-slate-600">{voicing ? `Notas: ${noteText}. Bajo marcado con anillo negro.` : "No hay voicings para esta selección."}</div>
+            {voicing ? (
+              <div className="mt-1 text-xs text-slate-600">
+                Shells de 3 notas con 1, 3 y 7 según la calidad. Forma e inversión afectan al voicing real.
+              </div>
+            ) : null}
           </div>
           {voicing ? <div className="text-xs text-slate-600">Voicing {Math.min(voicingIdx + 1, voicingTotal)}/{voicingTotal}: <b>{voicing.frets}</b></div> : null}
         </div>
@@ -11046,9 +11043,6 @@ function ChordFretboard({
                             <>
                               <div className="mt-1">
                                 <ChordNoteBadgeStrip items={guideToneBadgeItems} bassNote={guideToneBassNote} colorMap={colors} />
-                              </div>
-                              <div className="mt-1 text-xs text-slate-600">
-                                Shells de 3 notas con 1, 3 y 7 según la calidad. Forma e inversión afectan al voicing real.
                               </div>
                             </>
                           ) : (
