@@ -951,7 +951,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "2.98";
+const APP_VERSION = "3.02";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -2963,7 +2963,6 @@ const CHORD_GUIDE_TONE_FORMS = [
 const CHORD_GUIDE_TONE_INVERSIONS = [
   { value: "root", label: "Fundamental" },
   { value: "1", label: "1ª inversión" },
-  { value: "2", label: "2ª inversión" },
   { value: "all", label: "Todas" },
 ];
 
@@ -2983,10 +2982,10 @@ function guideToneDefinitionFromQuality(quality) {
 
 function guideToneBassIntervalsForSelection(definition, inversion) {
   const ints = Array.isArray(definition?.intervals) ? definition.intervals.map(mod12) : [0, 4, 11];
-  const selected = inversion === "all" ? ["root", "1", "2"] : [inversion];
+  const normalized = ["root", "1", "all"].includes(inversion) ? inversion : "root";
+  const selected = normalized === "all" ? ["root", "1"] : [normalized];
   return Array.from(new Set(selected.map((inv) => {
     if (inv === "1") return ints[1] ?? 0;
-    if (inv === "2") return ints[2] ?? 0;
     return ints[0] ?? 0;
   }).map(mod12)));
 }
@@ -7461,7 +7460,7 @@ export default function FretboardScalesPage() {
     const rootCandidates = symmetricRootCandidatesForPlan(plan);
     const finalizeMainVoicings = (list) => {
       const base = dedupeAndSortVoicings(list);
-      if (!chordAllowOpenStrings) return base;
+      if (!chordAllowOpenStrings) return base.filter((v) => !voicingHasOpenStrings(v));
       const allowedIntervals = new Set((plan.intervals || []).map(mod12));
       const requiredIntervals = new Set((plan.intervals || []).map(mod12));
 
@@ -9644,6 +9643,7 @@ function ChordFretboard({
   voicing,
   voicingIdx,
   voicingTotal,
+  emptyMessage = "",
   roleForPc = chordRoleOfPc,
   labelForPc = labelForChordPc,
   noteNameForPc = chordPcToSpelledName,
@@ -9677,9 +9677,7 @@ function ChordFretboard({
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="text-sm font-semibold text-slate-800">{title}</div>
-          <div className="text-xs text-slate-600">
-            {voicing ? `Notas: ${noteText}. Bajo marcado con anillo negro.` : "No hay voicings para esta selección."}
-          </div>
+          {voicing ? <div className="text-xs text-slate-600">{`Notas: ${noteText}. Bajo marcado con anillo negro.`}</div> : null}
           {subtitle ? <div className="text-xs text-slate-600">{subtitle}</div> : null}
         </div>
 
@@ -9689,6 +9687,12 @@ function ChordFretboard({
           </div>
         ) : null}
       </div>
+
+      {!voicing && emptyMessage ? (
+        <div className="mb-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs text-slate-500">
+          {emptyMessage}
+        </div>
+      ) : null}
 
       <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
         <div className="text-xs font-semibold text-slate-600">Cuerda</div>
@@ -9774,7 +9778,7 @@ function ChordFretboard({
     );
   }
 
-  function GuideToneFretboard({ title, voicing, voicingIdx, voicingTotal }) {
+  function GuideToneFretboard({ title, voicing, voicingIdx, voicingTotal, emptyMessage = "" }) {
     const notesMap = useMemo(() => {
       const m = new Map();
       if (!voicing?.notes?.length) return m;
@@ -9804,15 +9808,19 @@ function ChordFretboard({
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="text-sm font-semibold text-slate-800">{title}</div>
-            <div className="text-xs text-slate-600">{voicing ? `Notas: ${noteText}. Bajo marcado con anillo negro.` : "No hay voicings para esta selección."}</div>
-            {voicing ? (
-              <div className="mt-1 text-xs text-slate-600">
-                Shells de 3 notas con 1, 3 y 7 según la calidad. Forma e inversión afectan al voicing real.
-              </div>
-            ) : null}
+            {voicing ? <div className="text-xs text-slate-600">{`Notas: ${noteText}. Bajo marcado con anillo negro.`}</div> : null}
+            <div className="mt-1 text-xs text-slate-600">
+              Shells de 3 notas con 1, 3 y 7 según la calidad. Forma e inversión afectan al voicing real.
+            </div>
           </div>
           {voicing ? <div className="text-xs text-slate-600">Voicing {Math.min(voicingIdx + 1, voicingTotal)}/{voicingTotal}: <b>{voicing.frets}</b></div> : null}
         </div>
+
+        {!voicing && emptyMessage ? (
+          <div className="mb-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs text-slate-500">
+            {emptyMessage}
+          </div>
+        ) : null}
 
         <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
           <div className="text-xs font-semibold text-slate-600">Cuerda</div>
@@ -12040,53 +12048,34 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                     </>
                   ) : (
                     chordFamily === "quartal" ? (
-                    activeQuartalVoicing ? (
-                        <ChordFretboard title={`Acorde ${chordQuartalDisplayName}${chordQuartalDegreeText ? ` · ${chordQuartalDegreeText}` : ""}`}  subtitle={`${chordQuartalUiText}${chordQuartalStepText ? ` · ${chordQuartalStepText}` : ""}.`} voicing={activeQuartalVoicing}
-                          voicingIdx={chordQuartalVoicingIdx}
-			  voicingTotal={Math.max(1, chordQuartalVoicings.length)}
-			  roleForPc={quartalRoleOfPc}
-			  labelForPc={labelForQuartalPc}
-			  noteNameForPc={quartalNoteNameForPc}
-			/>
-  ) : (
-    <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
-      <div className="text-sm font-semibold text-slate-800">Acorde cuartal</div>
-      <div className="mt-1 text-xs text-slate-600">
-        {chordQuartalDisplayName}
-        {chordQuartalDegreeText ? ` · ${chordQuartalDegreeText}` : ""}
-        {" · "}
-        {chordQuartalUiText}
-      </div>
-      <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs text-slate-500">
-        No he encontrado voicings cuartales con los filtros actuales. Prueba a subir la distancia o a permitir cuerdas al aire.
-      </div>
-    </section>
-  )
-) : chordFamily === "guide_tones" ? (
-  activeGuideToneVoicing ? (
-    <GuideToneFretboard
-      title={`Acorde ${guideToneDisplayName} · ${chordFamily === "guide_tones" ? "Notas guía" : chordFamily === "quartal" ? quartalSectionDisplayName : chordFamily === "tertian" ? tertianSectionDisplayName : chordFamily === "drop_voicing" ? dropVoicingSectionDisplayName : chordFamily === "triads" ? triadSectionDisplayName : chordFamily === "sevenths" ? seventhSectionDisplayName : ""}`}
-      voicing={activeGuideToneVoicing}
-      voicingIdx={guideToneVoicingIdx}
-      voicingTotal={Math.max(1, guideToneVoicings.length)}
-    />
-  ) : (
-    <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
-      <div className="text-sm font-semibold text-slate-800">Notas guía</div>
-      <div className="mt-1 text-xs text-slate-600">{guideToneSectionDisplayName}</div>
-      <div className="mt-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-xs text-slate-500">
-        No he encontrado shells de notas guía con los filtros actuales. Prueba a cambiar forma, inversión o distancia.
-      </div>
-    </section>
-  )
-) : (
-  <ChordFretboard
-    title={`Acorde ${chordSectionDisplayName}`}
-    voicing={activeChordVoicing}
-    voicingIdx={chordVoicingIdx}
-    voicingTotal={Math.max(1, chordVoicings.length)}
-  />
-)
+                      <ChordFretboard
+                        title={`Acorde ${chordQuartalDisplayName}${chordQuartalDegreeText ? ` · ${chordQuartalDegreeText}` : ""}`}
+                        subtitle={`${chordQuartalUiText}${chordQuartalStepText ? ` · ${chordQuartalStepText}` : ""}.`}
+                        voicing={activeQuartalVoicing}
+                        voicingIdx={chordQuartalVoicingIdx}
+                        voicingTotal={Math.max(1, chordQuartalVoicings.length)}
+                        emptyMessage={`No he encontrado apilados ${chordQuartalSpread === "open" ? "abiertos" : "cerrados"} con la distancia actual. Prueba a subir la distancia o cambiar el apilado.`}
+                        roleForPc={quartalRoleOfPc}
+                        labelForPc={labelForQuartalPc}
+                        noteNameForPc={quartalNoteNameForPc}
+                      />
+                    ) : chordFamily === "guide_tones" ? (
+                      <GuideToneFretboard
+                        title={`Acorde ${guideToneDisplayName} · Notas guía`}
+                        voicing={activeGuideToneVoicing}
+                        voicingIdx={guideToneVoicingIdx}
+                        voicingTotal={Math.max(1, guideToneVoicings.length)}
+                        emptyMessage="No he encontrado shells de notas guía con los filtros actuales. Prueba a cambiar forma, inversión o distancia."
+                      />
+                    ) : (
+                      <ChordFretboard
+                        title={`Acorde ${chordSectionDisplayName}`}
+                        voicing={activeChordVoicing}
+                        voicingIdx={chordVoicingIdx}
+                        voicingTotal={Math.max(1, chordVoicings.length)}
+                        emptyMessage={chordDbError || "No he encontrado voicings para este acorde con los filtros actuales. Prueba a cambiar forma, inversión, distancia o permitir cuerdas al aire."}
+                      />
+                    )
 
                   )}
                   <StudyPanel />
