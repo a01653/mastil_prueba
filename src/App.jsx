@@ -951,7 +951,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "2.93";
+const APP_VERSION = "2.94";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -1925,6 +1925,8 @@ function chordEngineLayerLabel(plan) {
     case "multi_add": return "Add múltiple";
     case "drop": return "Drop";
     case "chord": return "Acorde";
+    case "quartal": return "Cuartal";
+    case "guide_tones": return "Notas guía";
     default: return "—";
   }
 }
@@ -1936,6 +1938,7 @@ function chordEngineGeneratorLabel(plan) {
     case "drop": return "Drop";
     case "exact": return "Exact";
     case "json": return "JSON";
+    case "quartal": return "Quartal";
     default: return "—";
   }
 }
@@ -1951,6 +1954,15 @@ function studyVoicingFormLabel(voicing, form) {
 function explainStudyRules(plan) {
   if (!plan) return [];
   const out = [];
+  if (plan.layer === "quartal") {
+    out.push("En cuartales el voicing real depende del apilado abierto/cerrado y del número de voces.");
+    if (plan.quartalReference === "scale") out.push("Si la referencia es diatónica, la raíz real puede desplazarse al grado generado.");
+    return out;
+  }
+  if (plan.layer === "guide_tones") {
+    out.push("Las notas guía usan shells de 3 notas con 1, 3 y 7/6 según la calidad.");
+    return out;
+  }
   if (!plan.ui?.usesManualForm) out.push("En estructura Acorde la forma es automática.");
   if (!plan.ui?.allowThirdInversion) out.push("La 3ª inversión no está disponible en triadas.");
   if (!plan.ui?.dropEligible) out.push("Los drops solo son válidos en cuatriadas estrictas de 4 notas.");
@@ -1963,6 +1975,19 @@ function explainStudyRules(plan) {
 function buildChordNamingExplanation(plan) {
   if (!plan) return [];
   const out = [];
+
+  if (plan.layer === "quartal") {
+    out.push("Se nombra cuartal porque las voces se apilan por cuartas respecto a la raíz actual.");
+    if (plan.quartalType === "mixed") out.push("Es mixto porque combina al menos una 4ª aumentada con 4ªs justas.");
+    else out.push("Es puro porque todas las cuartas del apilado son justas.");
+    return out;
+  }
+
+  if (plan.layer === "guide_tones") {
+    out.push("Se nombra como shell de notas guía porque conserva 1, 3 y 7/6 como núcleo armónico.");
+    if (plan.guideToneQuality === "maj6") out.push("La tercera voz es 6 en lugar de 7, por eso el color resultante es 6.");
+    return out;
+  }
 
   if (plan.suspension === "sus2") out.push("Se nombra sus2 porque la 3ª se sustituye por 2ª.");
   else if (plan.suspension === "sus4") out.push("Se nombra sus4 porque la 3ª se sustituye por 4ª.");
@@ -8373,30 +8398,131 @@ export default function FretboardScalesPage() {
   const studyData = useMemo(() => {
     if (studyTarget === "main") {
       const detectCandidate = chordDetectMode ? chordDetectSelectedCandidate : null;
-      const mainRootPc = detectCandidate?.rootPc ?? chordRootPc;
-      const mainPreferSharps = detectCandidate?.preferSharps ?? chordPreferSharps;
-      const mainIntervals = detectCandidate?.formula?.intervals?.length
-        ? detectCandidate.formula.intervals.map(mod12)
-        : chordIntervals;
-      const mainDegreeLabels = detectCandidate?.formula?.degreeLabels?.length === mainIntervals.length
-        ? detectCandidate.formula.degreeLabels
-        : null;
+      if (detectCandidate) {
+        const mainRootPc = detectCandidate.rootPc;
+        const mainPreferSharps = detectCandidate.preferSharps ?? chordPreferSharps;
+        const mainIntervals = detectCandidate.formula?.intervals?.length
+          ? detectCandidate.formula.intervals.map(mod12)
+          : chordIntervals;
+        const mainDegreeLabels = detectCandidate.formula?.degreeLabels?.length === mainIntervals.length
+          ? detectCandidate.formula.degreeLabels
+          : null;
+        const mainSpelledNotes = spellChordNotes({ rootPc: mainRootPc, chordIntervals: mainIntervals, preferSharps: mainPreferSharps });
+        const mainPcToSpelledName = (pc) => {
+          const interval = mod12(pc - mainRootPc);
+          const idx = mainIntervals.findIndex((x) => mod12(x) === interval);
+          return idx >= 0 ? mainSpelledNotes[idx] : pcToName(pc, mainPreferSharps);
+        };
+        const manualStudyVoicing = buildManualSelectionVoicing(chordDetectSelectedNotes, mainRootPc, maxFret);
+        const currentMainVoicing = manualStudyVoicing || activeChordVoicing;
+
+        return {
+          rootPc: mainRootPc,
+          preferSharps: mainPreferSharps,
+          title: "Acorde principal",
+          chordName: detectCandidate.name,
+          notes: mainSpelledNotes,
+          intervals: mainDegreeLabels || mainIntervals.map((i) => intervalToChordToken(i, { ext6: chordExt6, ext9: chordExt9 && chordStructure !== "triad", ext11: chordExt11 && chordStructure !== "triad", ext13: chordExt13 && chordStructure !== "triad" })),
+          plan: chordEnginePlan,
+          voicing: currentMainVoicing,
+          bassName: currentMainVoicing ? mainPcToSpelledName(currentMainVoicing.bassPc) : pcToName(chordBassPc, mainPreferSharps),
+          inversionLabel: currentMainVoicing
+            ? actualInversionLabelFromVoicing(chordEnginePlan, currentMainVoicing)
+            : CHORD_INVERSIONS.find((x) => x.value === chordInversion)?.label || "Fundamental",
+        };
+      }
+
+      if (chordFamily === "quartal") {
+        const quartalOrderedPcs = Array.isArray(activeQuartalVoicing?.quartalOrderedPcs) && activeQuartalVoicing.quartalOrderedPcs.length
+          ? activeQuartalVoicing.quartalOrderedPcs
+          : (Array.isArray(chordQuartalPitchSets?.[0]?.pcs) ? chordQuartalPitchSets[0].pcs : []);
+        const quartalRootPc = chordQuartalCurrentRootPc;
+        const quartalIntervals = quartalOrderedPcs.map((pc) => mod12(pc - quartalRootPc));
+        const quartalNotes = quartalIntervals.map((interval) => spellNoteFromChordInterval(quartalRootPc, interval, chordPreferSharps));
+        const quartalVoicing = activeQuartalVoicing
+          ? {
+              ...activeQuartalVoicing,
+              relIntervals: new Set((activeQuartalVoicing.notes || []).map((n) => mod12(n.pc - quartalRootPc))),
+            }
+          : null;
+        const quartalPlan = {
+          rootPc: quartalRootPc,
+          intervals: quartalIntervals,
+          bassInterval: quartalVoicing?.bassPc != null ? mod12(quartalVoicing.bassPc - quartalRootPc) : (quartalIntervals[0] ?? 0),
+          thirdOffset: quartalIntervals[1] ?? 0,
+          fifthOffset: quartalIntervals[2] ?? quartalIntervals[1] ?? 0,
+          topVoiceOffset: quartalIntervals.length > 3 ? quartalIntervals[3] : null,
+          form: chordQuartalSpread,
+          layer: "quartal",
+          generator: "quartal",
+          quartalType: chordQuartalType,
+          quartalReference: chordQuartalReference,
+          ui: { usesManualForm: true, allowThirdInversion: quartalIntervals.length > 3, dropEligible: false },
+        };
+
+        return {
+          rootPc: quartalRootPc,
+          preferSharps: chordPreferSharps,
+          title: "Acorde principal",
+          chordName: chordQuartalDisplayName,
+          notes: quartalNotes,
+          intervals: quartalIntervals.map((interval) => intervalToSimpleChordDegreeToken(interval)),
+          plan: quartalPlan,
+          voicing: quartalVoicing,
+          bassName: quartalVoicing?.bassPc != null ? spellNoteFromChordInterval(quartalRootPc, mod12(quartalVoicing.bassPc - quartalRootPc), chordPreferSharps) : "—",
+          inversionLabel: quartalVoicing ? actualInversionLabelFromVoicing(quartalPlan, quartalVoicing) : "Según voicing",
+        };
+      }
+
+      if (chordFamily === "guide_tones") {
+        const guideIntervals = guideToneDef.intervals.map(mod12);
+        const guidePlan = {
+          rootPc: chordRootPc,
+          intervals: guideIntervals,
+          bassInterval: activeGuideToneVoicing?.bassPc != null
+            ? mod12(activeGuideToneVoicing.bassPc - chordRootPc)
+            : (guideToneBassIntervalsForSelection(guideToneDef, guideToneInversion === "all" ? "root" : guideToneInversion)[0] ?? 0),
+          thirdOffset: guideIntervals[1] ?? 0,
+          fifthOffset: guideIntervals[2] ?? guideIntervals[1] ?? 0,
+          topVoiceOffset: null,
+          form: guideToneForm,
+          layer: "guide_tones",
+          generator: "exact",
+          guideToneQuality,
+          ui: { usesManualForm: true, allowThirdInversion: false, dropEligible: false },
+        };
+
+        return {
+          rootPc: chordRootPc,
+          preferSharps: chordPreferSharps,
+          title: "Acorde principal",
+          chordName: `${guideToneDisplayName} · Notas guía`,
+          notes: guideToneDef.intervals.map((interval) => spellNoteFromChordInterval(chordRootPc, interval, chordPreferSharps)),
+          intervals: [...guideToneDef.degreeLabels],
+          plan: guidePlan,
+          voicing: activeGuideToneVoicing,
+          bassName: activeGuideToneVoicing?.bassPc != null ? spellNoteFromChordInterval(chordRootPc, mod12(activeGuideToneVoicing.bassPc - chordRootPc), chordPreferSharps) : guideToneBassNote,
+          inversionLabel: activeGuideToneVoicing
+            ? actualInversionLabelFromVoicing(guidePlan, activeGuideToneVoicing)
+            : CHORD_GUIDE_TONE_INVERSIONS.find((x) => x.value === guideToneInversion)?.label || "Fundamental",
+        };
+      }
+
+      const mainRootPc = chordRootPc;
+      const mainPreferSharps = chordPreferSharps;
+      const mainIntervals = chordIntervals;
       const mainSpelledNotes = spellChordNotes({ rootPc: mainRootPc, chordIntervals: mainIntervals, preferSharps: mainPreferSharps });
       const mainPcToSpelledName = (pc) => {
         const interval = mod12(pc - mainRootPc);
         const idx = mainIntervals.findIndex((x) => mod12(x) === interval);
         return idx >= 0 ? mainSpelledNotes[idx] : pcToName(pc, mainPreferSharps);
       };
-      const manualStudyVoicing = detectCandidate
-        ? buildManualSelectionVoicing(chordDetectSelectedNotes, mainRootPc, maxFret)
-        : null;
-      const currentMainVoicing = manualStudyVoicing || activeChordVoicing;
 
       return {
         rootPc: mainRootPc,
         preferSharps: mainPreferSharps,
         title: "Acorde principal",
-        chordName: detectCandidate?.name || chordDisplayNameFromUI({
+        chordName: chordDisplayNameFromUI({
           rootPc: mainRootPc,
           preferSharps: mainPreferSharps,
           quality: chordQuality,
@@ -8409,12 +8535,12 @@ export default function FretboardScalesPage() {
           ext13: chordExt13,
         }),
         notes: mainSpelledNotes,
-        intervals: mainDegreeLabels || mainIntervals.map((i) => intervalToChordToken(i, { ext6: chordExt6, ext9: chordExt9 && chordStructure !== "triad", ext11: chordExt11 && chordStructure !== "triad", ext13: chordExt13 && chordStructure !== "triad" })),
+        intervals: mainIntervals.map((i) => intervalToChordToken(i, { ext6: chordExt6, ext9: chordExt9 && chordStructure !== "triad", ext11: chordExt11 && chordStructure !== "triad", ext13: chordExt13 && chordStructure !== "triad" })),
         plan: chordEnginePlan,
-        voicing: currentMainVoicing,
-        bassName: currentMainVoicing ? mainPcToSpelledName(currentMainVoicing.bassPc) : pcToName(chordBassPc, mainPreferSharps),
-        inversionLabel: currentMainVoicing
-          ? actualInversionLabelFromVoicing(chordEnginePlan, currentMainVoicing)
+        voicing: activeChordVoicing,
+        bassName: activeChordVoicing ? mainPcToSpelledName(activeChordVoicing.bassPc) : pcToName(chordBassPc, mainPreferSharps),
+        inversionLabel: activeChordVoicing
+          ? actualInversionLabelFromVoicing(chordEnginePlan, activeChordVoicing)
           : CHORD_INVERSIONS.find((x) => x.value === chordInversion)?.label || "Fundamental",
       };
     }
@@ -8458,7 +8584,7 @@ export default function FretboardScalesPage() {
       bassName: voicing ? pcToName(voicing.bassPc, pref) : pcToName(mod12((slot?.rootPc || 0) + (plan?.bassInterval || 0)), pref),
       inversionLabel: CHORD_INVERSIONS.find((x) => x.value === (slot?.inversion || "root"))?.label || "Fundamental",
     };
-  }, [studyTarget, chordDetectMode, chordDetectSelectedCandidate, chordDetectSelectedNotes, chordRootPc, chordPreferSharps, chordQuality, chordSuspension, chordStructure, chordExt7, chordExt6, chordExt9, chordExt11, chordExt13, chordIntervals, chordEnginePlan, activeChordVoicing, chordBassPc, chordInversion, maxFret, nearSlots, nearComputed]);
+  }, [studyTarget, chordDetectMode, chordDetectSelectedCandidate, chordDetectSelectedNotes, chordFamily, chordRootPc, chordPreferSharps, chordQuality, chordSuspension, chordStructure, chordExt7, chordExt6, chordExt9, chordExt11, chordExt13, chordIntervals, chordEnginePlan, activeChordVoicing, chordBassPc, chordInversion, maxFret, chordQuartalPitchSets, activeQuartalVoicing, chordQuartalCurrentRootPc, chordQuartalDisplayName, chordQuartalSpread, chordQuartalType, chordQuartalReference, guideToneDef, activeGuideToneVoicing, guideToneDisplayName, guideToneForm, guideToneInversion, guideToneQuality, guideToneBassNote, nearSlots, nearComputed]);
 
   // --------------------------------------------------------------------------
   // COMPONENTES UI INTERNOS: PANEL DE ESTUDIO
@@ -11103,6 +11229,17 @@ function ChordFretboard({
                                 className="h-4 w-4 rounded border-slate-300"
                               />
                             </label>
+                            <button
+                              type="button"
+                              className={UI_BTN_SM + " w-auto px-3"}
+                              title="Abre el análisis del acorde, del voicing y de sus tensiones."
+                              onClick={() => {
+                                setStudyTarget("main");
+                                setStudyOpen(true);
+                              }}
+                            >
+                              Estudiar
+                            </button>
                           </div>
                         )}
                       </div>
@@ -11890,7 +12027,7 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
 )
 
                   )}
-                  {chordFamily === "tertian" ? <StudyPanel /> : null}
+                  <StudyPanel />
 
                   {/* ACORDES CERCANOS */}
                   <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
