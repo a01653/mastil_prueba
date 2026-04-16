@@ -939,13 +939,13 @@ function analyzeChordSetTonality({ slots, harmonyMode }) {
 }
 
 // Base del sitio (Vite) para que fetch a /public funcione en localhost y GitHub Pages.
-// En producción (Pages) suele ser "/mastil_escalas/" y en dev "/".
+// En producción (Pages) suele ser "/mastil_pruebas/" y en dev "/".
 // OJO: nunca accedas a import.meta.env.BASE_URL sin optional chaining.
 // En Vite existe import.meta.env.BASE_URL ("/" en dev, "/<repo>/" en GitHub Pages).
 // Evitamos sintaxis TS "as any" porque puede romper el parser en algunos entornos.
 const APP_BASE = (import.meta && import.meta.env && import.meta.env.BASE_URL) ? import.meta.env.BASE_URL : "/";
 // Fallback (cuando se ejecuta fuera del repo, p.ej. sandbox): GitHub Pages del proyecto
-const PAGES_BASE = "https://a01653.github.io/mastil_escalas/";
+const PAGES_BASE = "https://a01653.github.io/mastil_pruebas/";
 const UI_STORAGE_KEY = "mastil_interactivo_guitarra_config_v1";
 const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
