@@ -180,7 +180,7 @@ const MANUAL_SCALE_TETRAD_PRESETS = {
 // MÁSTIL, AFINACIÓN E INLAYS
 // ============================================================================
 
-// Afinación estándar (UI: 1ª?6ª)
+// Afinación estándar (UI: 1ª->6ª)
 const STRINGS = [
   { label: "1ª (E)", pc: 4 },
   { label: "2ª (B)", pc: 11 },
@@ -320,9 +320,9 @@ function pcToDualName(pc) {
 }
 
 // ------------------------
-// Acordes UI: selector de Tono por letra + ?/? (sin C#/Db en el combo)
+// Acordes UI: selector de Tono por letra + b/# (sin C#/Db en el combo)
 // - El combo muestra solo C D E F G A B.
-// - Los botones ?/? desplazan 1 semitono y fijan la “ortografía” (C# vs Db).
+// - Los botones b/# desplazan 1 semitono y fijan la “ortografía” (C# vs Db).
 // ------------------------
 const BLACK_PC_TO_LETTER_SHARP = { 1: "C", 3: "D", 6: "F", 8: "G", 10: "A" };
 const BLACK_PC_TO_LETTER_FLAT = { 1: "D", 3: "E", 6: "G", 8: "A", 10: "B" };
@@ -2078,7 +2078,7 @@ function buildDominantInfo(targetRootPc, preferSharps) {
     rootPc,
     name: `${rootName}7`,
     notes,
-    relation: `V7 ? ${targetName}`,
+    relation: `V7 \u2192 ${targetName}`,
   };
 }
 
@@ -2091,7 +2091,7 @@ function buildBackdoorDominantInfo(targetRootPc, preferSharps) {
     rootPc,
     name: `${rootName}7`,
     notes,
-    relation: `bVII7 ? ${targetName}`,
+    relation: `bVII7 \u2192 ${targetName}`,
   };
 }
 
@@ -3716,7 +3716,7 @@ function build2NpsPatternsMerged({ rootPc, scaleIntervals, maxFret }) {
         deg = (deg + 1) % 5;
       }
 
-      // 2 por cuerda, 6ª?1ª
+      // 2 por cuerda, 6ª->1ª
       let idxPitch = 0;
       for (let sIdx = 5; sIdx >= 0; sIdx--) {
         const p1 = pitches[idxPitch++];
@@ -3773,7 +3773,7 @@ function build3NpsPatternsMerged({ rootPc, scaleIntervals, maxFret }) {
         deg = (deg + 1) % 7;
       }
 
-      // 3 por cuerda, 6ª?1ª (sIdx 5..0)
+      // 3 por cuerda, 6ª->1ª (sIdx 5..0)
       let idxPitch = 0;
       for (let sIdx = 5; sIdx >= 0; sIdx--) {
         const p1 = pitches[idxPitch++];
@@ -4308,8 +4308,6 @@ function inferControlTitle(el) {
 
   if (tag === "button") {
     if (ownText === "Estudiar") return "Abre el análisis del acorde, del voicing y de sus tensiones.";
-    if (ownText === "?") return "Bajar 1 semitono";
-    if (ownText === "?") return "Subir 1 semitono";
     if (ownText === "Auto") return "Deja que la aplicación elija automáticamente.";
     if (ownText === "Notas") return "Muestra el nombre de las notas.";
     if (ownText === "Intervalos") return "Muestra el grado o intervalo.";
@@ -4428,7 +4426,7 @@ const ROUTE_LAB_DEFAULT_TUNING = {
 const ROUTE_LAB_FIXED_TESTS = [
   {
     id: "penta_major_f_63_110",
-    label: "Penta mayor F · 63 ? 110",
+    label: "Penta mayor F · 63 \u2192 110",
     rootPc: 5,
     scaleName: "Pentatónica mayor",
     startCode: "63",
@@ -4442,7 +4440,7 @@ const ROUTE_LAB_FIXED_TESTS = [
   },
   {
     id: "penta_major_f_11_110",
-    label: "Penta mayor F · 11 ? 110",
+    label: "Penta mayor F · 11 \u2192 110",
     rootPc: 5,
     scaleName: "Pentatónica mayor",
     startCode: "11",
@@ -4453,7 +4451,7 @@ const ROUTE_LAB_FIXED_TESTS = [
   },
   {
     id: "major_f_11_112",
-    label: "Mayor F · 11 ? 112",
+    label: "Mayor F · 11 \u2192 112",
     rootPc: 5,
     scaleName: "Mayor",
     startCode: "11",
@@ -4464,7 +4462,7 @@ const ROUTE_LAB_FIXED_TESTS = [
   },
   {
     id: "minor_natural_f_61_113",
-    label: "Menor natural F · 61 ? 113",
+    label: "Menor natural F · 61 \u2192 113",
     rootPc: 5,
     scaleName: "Menor natural",
     startCode: "61",
@@ -4475,7 +4473,7 @@ const ROUTE_LAB_FIXED_TESTS = [
   },
   {
     id: "blues_minor_f_61_17",
-    label: "Blues menor F · 61 ? 17",
+    label: "Blues menor F · 61 \u2192 17",
     rootPc: 5,
     scaleName: "Pentatónica menor + blue note",
     startCode: "61",
@@ -4486,7 +4484,7 @@ const ROUTE_LAB_FIXED_TESTS = [
   },
   {
     id: "bebop_major_f_10_63",
-    label: "Bebop mayor F · 10 ? 63",
+    label: "Bebop mayor F · 10 \u2192 63",
     rootPc: 5,
     scaleName: "Bebop mayor",
     startCode: "10",
@@ -4785,10 +4783,10 @@ function evaluateRouteLabFixedTest(test, tuning = ROUTE_LAB_DEFAULT_TUNING) {
   for (const check of test.checks || []) {
     const severity = check.severity || "hard";
     if (check.type === "includeSeq" && !routeLabHasAdjacentSequence(codes, check.seq)) {
-      pushFailure(severity, `Falta ${check.seq.join(" ? ")}`);
+      pushFailure(severity, `Falta ${check.seq.join(" \u2192 ")}`);
     }
     if (check.type === "excludeSeq" && routeLabHasAdjacentSequence(codes, check.seq)) {
-      pushFailure(severity, `Sobra ${check.seq.join(" ? ")}`);
+      pushFailure(severity, `Sobra ${check.seq.join(" \u2192 ")}`);
     }
     if (check.type === "excludeCode" && codes.includes(check.code)) {
       pushFailure(severity, `Incluye ${check.code}`);
@@ -4799,7 +4797,7 @@ function evaluateRouteLabFixedTest(test, tuning = ROUTE_LAB_DEFAULT_TUNING) {
     ...test,
     result,
     codes,
-    text: codes.join(" ? "),
+    text: codes.join(" \u2192 "),
     maxRun: generic.maxRun,
     reversals: generic.reversals,
     overshootCount: generic.overshootCount,
@@ -4874,7 +4872,7 @@ function buildRouteLabBenchmarkCases() {
         seen.add(key);
         asc.push({
           id: key,
-          label: `${spec.scaleName} · ${start.code} ? ${end.code}`,
+          label: `${spec.scaleName} · ${start.code} \u2192 ${end.code}`,
           rootPc: spec.rootPc,
           scaleName: spec.scaleName,
           startCode: start.code,
@@ -4888,7 +4886,7 @@ function buildRouteLabBenchmarkCases() {
     const desc = asc.map((item) => ({
       ...item,
       id: `${item.id}|desc`,
-      label: `${item.scaleName} · ${item.endCode} ? ${item.startCode}`,
+      label: `${item.scaleName} · ${item.endCode} \u2192 ${item.startCode}`,
       startCode: item.endCode,
       endCode: item.startCode,
     }));
@@ -4925,7 +4923,7 @@ function evaluateRouteLabBenchmarkCase(test, tuning = ROUTE_LAB_DEFAULT_TUNING) 
   return {
     ...test,
     result,
-    text: routeLabCodesFromPath(result.path).join(" ? "),
+    text: routeLabCodesFromPath(result.path).join(" \u2192 "),
     maxRun: generic.maxRun,
     reversals: generic.reversals,
     overshootCount: generic.overshootCount,
@@ -5731,7 +5729,7 @@ function midiToSpelledPitch(midi, preferSharps) {
   const name = pcToName(pc, preferSharps);
   const letter = name[0] || "C";
   const accidentalRaw = name.slice(1);
-  const accidental = accidentalRaw === "#" ? "?" : accidentalRaw === "b" ? "?" : accidentalRaw;
+  const accidental = accidentalRaw === "#" ? "\u266F" : accidentalRaw === "b" ? "\u266D" : accidentalRaw;
   const octave = Math.floor(midi / 12) - 1;
   return { midi, name, letter, accidental, octave };
 }
@@ -5794,7 +5792,7 @@ function keySignatureLetterAccidentals(keySignature) {
   if (!type || !count) return map;
 
   const letters = KEY_SIGNATURE_LETTER_ORDER[type] || [];
-  const accidental = type === "sharp" ? "?" : "?";
+  const accidental = type === "sharp" ? "\u266F" : "\u266D";
   letters.slice(0, count).forEach((letter) => map.set(letter, accidental));
   return map;
 }
@@ -5803,7 +5801,7 @@ function displayedAccidentalForNote(note, signatureMap) {
   const keyAccidental = signatureMap?.get(note.letter) || "";
   const noteAccidental = note.accidental || "";
   if (noteAccidental === keyAccidental) return "";
-  if (!noteAccidental && keyAccidental) return "?";
+  if (!noteAccidental && keyAccidental) return "\u266E";
   return noteAccidental;
 }
 
@@ -5897,7 +5895,7 @@ function MusicStaff({ events, preferSharps, clefMode = "guitar", beatsPerBar = 4
   const staffTop = 28;
   const signatureType = keySignature?.type || null;
   const signatureCount = Math.max(0, Math.min(7, Number(keySignature?.count) || 0));
-  const signatureGlyph = signatureType === "sharp" ? "?" : signatureType === "flat" ? "?" : "";
+  const signatureGlyph = signatureType === "sharp" ? "\u266F" : signatureType === "flat" ? "\u266D" : "";
   const signatureSteps = signatureType ? keySignatureStepsForClef(clef, signatureType).slice(0, signatureCount) : [];
   const signatureWidth = signatureSteps.length ? (signatureSteps.length * 11) + 8 : 0;
   const signatureMap = keySignatureLetterAccidentals(keySignature);
@@ -5912,7 +5910,7 @@ function MusicStaff({ events, preferSharps, clefMode = "guitar", beatsPerBar = 4
   const measures = Math.max(1, Math.ceil(safeEvents.length / beatsPerBar));
   const width = leftPad + (measures * measureWidth) + rightPad;
   const staffBottom = staffTop + (lineGap * 4);
-  const clefGlyph = clef === "bass" ? "??" : "??";
+  const clefGlyph = clef === "bass" ? "\uD834\uDD22" : "\uD834\uDD1E";
 
   const renderedEvents = safeEvents.map((evt, idx) => {
     const measureIdx = Math.floor(idx / beatsPerBar);
@@ -9093,7 +9091,7 @@ export default function FretboardScalesPage() {
   }, [routeLabResult.path]);
 
   const routeLabText = useMemo(
-    () => routeLabResult.path.map((n) => `${n.sIdx + 1}${n.fret}`).join(" ? "),
+    () => routeLabResult.path.map((n) => `${n.sIdx + 1}${n.fret}`).join(" \u2192 "),
     [routeLabResult.path]
   );
 
@@ -9110,7 +9108,7 @@ export default function FretboardScalesPage() {
   const routeLabDebugLines = useMemo(() => {
     return (routeLabResult.debugSteps || []).map((step, idx) => {
       const chunks = [];
-      chunks.push(`${idx + 1}. ${step.from} ? ${step.to}`);
+      chunks.push(`${idx + 1}. ${step.from} \u2192 ${step.to}`);
       chunks.push(step.sameString ? `misma cuerda · ${step.df} trastes` : `cambio cuerda ${step.ds} · ${step.df} trastes`);
       chunks.push(`bloque=${step.runCount}`);
       chunks.push(`corredor=${step.corridorDev}`);
@@ -10203,7 +10201,7 @@ function ChordFretboard({
               <span className="font-semibold text-rose-600">{routeLabResult.reason}</span>
             ) : (
               <span>
-                Ruta: {routeLabStartCode} ? {routeLabEndCode} | pasos: <b>{routeLabResult.path.length}</b>
+                Ruta: {routeLabStartCode} {"\u2192"} {routeLabEndCode} | pasos: <b>{routeLabResult.path.length}</b>
               </span>
             )}
           </div>
@@ -10366,7 +10364,7 @@ function ChordFretboard({
                 <span className="font-semibold text-rose-600">{routeResult.reason}</span>
               ) : (
                 <span>
-                  Ruta: {routeStartCode} ? {routeEndCode} | pasos: <b>{routeResult.path.length}</b>
+                  Ruta: {routeStartCode} {"\u2192"} {routeEndCode} | pasos: <b>{routeResult.path.length}</b>
                 </span>
               )}
             </div>
@@ -10628,7 +10626,7 @@ function ChordFretboard({
   const UI_HELP_SM = "text-[11px] text-slate-500";
   const UI_EXT_GRID = "mt-1 grid grid-cols-3 gap-x-3 gap-y-1 text-xs";
 
-  // Estado visual de ?/? (solo para acordes): si la tónica es nota negra, resaltamos ? o ? según la ortografía.
+  // Estado visual de b/# (solo para acordes): si la tónica es nota negra, resaltamos b o # según la ortografía.
   const chordAccidental = !NATURAL_PCS.has(mod12(chordRootPc));
 
   const scaleOptions = useMemo(
@@ -10742,7 +10740,7 @@ function ChordFretboard({
                       <button
                         type="button"
                         className={`${UI_BTN_SM} ${scaleRootAcc === "flat" ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
-                        title="Bajar 1 semitono (?). Si ya está alterado, vuelve a natural."
+                        title="Bajar 1 semitono (b). Si ya está alterado, vuelve a natural."
                         onClick={() => {
                           const nat = mod12(NATURAL_PC[scaleRootLetter]);
                           if (scaleRootAcc === "flat") {
@@ -10754,13 +10752,13 @@ function ChordFretboard({
                           setRootPc(mod12(nat - 1));
                         }}
                       >
-                        ?
+                        b
                       </button>
 
                       <button
                         type="button"
                         className={`${UI_BTN_SM} ${scaleRootAcc === "sharp" ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
-                        title="Subir 1 semitono (?). Si ya está alterado, vuelve a natural."
+                        title="Subir 1 semitono (#). Si ya está alterado, vuelve a natural."
                         onClick={() => {
                           const nat = mod12(NATURAL_PC[scaleRootLetter]);
                           if (scaleRootAcc === "sharp") {
@@ -10772,7 +10770,7 @@ function ChordFretboard({
                           setRootPc(mod12(nat + 1));
                         }}
                       >
-                        ?
+                        #
                       </button>
                     </div>
                   </div>
@@ -10784,7 +10782,7 @@ function ChordFretboard({
                       <ToggleButton
                         active={accMode === "auto"}
                         onClick={() => setAccMode("auto")}
-                        title="Auto usa la armadura esperada (ej. F mayor ? Bb, no A#)."
+                        title="Auto usa la armadura esperada; por ejemplo, en F mayor usa Bb, no A#."
                       >
                         Auto
                       </ToggleButton>
@@ -11146,7 +11144,7 @@ function ChordFretboard({
                                 setChordSpellPreferSharps(false);
                               }}
                             >
-                              ?
+                              b
                             </button>
                             <button
                               type="button"
@@ -11165,7 +11163,7 @@ function ChordFretboard({
                                 setChordSpellPreferSharps(true);
                               }}
                             >
-                              ?
+                              #
                             </button>
                           </div>
                           
@@ -11340,7 +11338,7 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                                   setChordRootPc(mod12(nat - 1));
                                   setChordSpellPreferSharps(false);
                                 }}
-                              >?</button>
+                              >b</button>
                               <button
                                 type="button"
                                 className={`${UI_BTN_SM} ${chordAccidental && chordSpellPreferSharps ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
@@ -11357,7 +11355,7 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                                   setChordRootPc(mod12(nat + 1));
                                   setChordSpellPreferSharps(true);
                                 }}
-                              >?</button>
+                              >#</button>
                             </div>
                           </div>
 
@@ -11502,7 +11500,7 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                                 setChordSpellPreferSharps(false);
                               }}
                             >
-                              ?
+                              b
                             </button>
                             <button
                               type="button"
@@ -11521,7 +11519,7 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                                 setChordSpellPreferSharps(true);
                               }}
                             >
-                              ?
+                              #
                             </button>
                           </div>
                         </div>
@@ -12050,7 +12048,7 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                                       updateNearSlot(idx, { rootPc: mod12(nat - 1), selFrets: null, spellPreferSharps: false });
                                     }}
                                     disabled={disableAll}
-                                  >?</button>
+                                  >b</button>
                                   <button
                                     type="button"
                                     className={`${UI_BTN_SM} ${(!NATURAL_PCS.has(mod12(slot.rootPc)) && slot.spellPreferSharps) ? "!bg-slate-900 !text-white !border-slate-900" : ""}`}
@@ -12066,7 +12064,7 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                                       updateNearSlot(idx, { rootPc: mod12(nat + 1), selFrets: null, spellPreferSharps: true });
                                     }}
                                     disabled={disableAll}
-                                  >?</button>
+                                  >#</button>
                                 </div>
                               </div>
 
