@@ -5,7 +5,9 @@
 - Primero se hacen los cambios en local.
 - Antes de dar una entrega por buena, hay que validar el resultado en local.
 - La validación local debe incluir `npm run build`.
+- Antes de levantar `npm run preview`, hay que incrementar `APP_VERSION` en `src/App.jsx` para que la versión visible en local ya refleje el cambio.
 - Si hace falta revisar la interfaz o el resultado final, se puede levantar `npm run preview` y mostrar la URL local.
+- Entre el `preview` local y la publicación no se debe cambiar ese `APP_VERSION`: si luego el usuario pide publicar, se usa exactamente el mismo número.
 
 ## Publicación
 
@@ -14,7 +16,8 @@
 
 ## Versionado al Publicar
 
-- Cuando el usuario pida publicar, hay que incrementar la versión secuencialmente: `2.93`, `2.94`, `2.95`, etc.
+- La versión visible en `preview` debe seguir la secuencia `2.93`, `2.94`, `2.95`, etc.
+- Cuando el usuario pida publicar, hay que reutilizar esa misma versión ya mostrada en local; no se incrementa otra vez.
 - La versión debe actualizarse en:
   - `src/App.jsx` en `APP_VERSION`
   - `package.json` en `version`

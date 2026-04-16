@@ -951,7 +951,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "2.96";
+const APP_VERSION = "2.98";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -1944,6 +1944,9 @@ function chordEngineGeneratorLabel(plan) {
 }
 
 function studyVoicingFormLabel(voicing, form) {
+  if (voicing?.quartalSpreadKind) {
+    return voicing.quartalSpreadKind === "open" ? "Abierto" : "Cerrado";
+  }
   if (isDropForm(form)) {
     return CHORD_FORMS.find((x) => x.value === form)?.label || "Drop";
   }
@@ -6130,6 +6133,8 @@ export default function FretboardScalesPage() {
   const [guideToneInversion, setGuideToneInversion] = useState("all");
   const [guideToneVoicingIdx, setGuideToneVoicingIdx] = useState(0);
   const [guideToneSelectedFrets, setGuideToneSelectedFrets] = useState(null);
+  const lastGuideToneVoicingRef = useRef(null);
+  const skipGuideToneVoicingRefSyncRef = useRef(false);
   const [chordQuality, setChordQuality] = useState("maj");
   const [chordSuspension, setChordSuspension] = useState("none");
   const [chordStructure, setChordStructure] = useState("triad");
@@ -7153,24 +7158,51 @@ export default function FretboardScalesPage() {
     return list.slice(0, 60);
   }, [guideToneDef, guideToneInversion, chordRootPc, maxFret, chordMaxDist, chordAllowOpenStrings, guideToneForm]);
 
+  const guideToneVoicingsSig = useMemo(() => guideToneVoicings.map((v) => v.frets).join("|"), [guideToneVoicings]);
+
   useEffect(() => {
     if (!guideToneVoicings.length) {
-      setGuideToneVoicingIdx(0);
-      setGuideToneSelectedFrets(null);
+      lastGuideToneVoicingRef.current = null;
+      if (guideToneVoicingIdx !== 0) setGuideToneVoicingIdx(0);
+      if (guideToneSelectedFrets !== null) setGuideToneSelectedFrets(null);
       return;
     }
 
-    if (guideToneSelectedFrets) {
-      const idx = guideToneVoicings.findIndex((v) => v.frets === guideToneSelectedFrets);
-      if (idx >= 0) {
-        setGuideToneVoicingIdx(idx);
-        return;
+    const keepIdx = guideToneSelectedFrets ? guideToneVoicings.findIndex((v) => v.frets === guideToneSelectedFrets) : -1;
+    if (keepIdx >= 0) {
+      if (keepIdx !== guideToneVoicingIdx) {
+        skipGuideToneVoicingRefSyncRef.current = true;
+        setGuideToneVoicingIdx(keepIdx);
       }
+      return;
     }
 
-    setGuideToneVoicingIdx(0);
-    setGuideToneSelectedFrets(guideToneVoicings[0].frets);
-  }, [guideToneVoicings, guideToneSelectedFrets]);
+    const ref = lastGuideToneVoicingRef.current;
+    const idx = nearestVoicingIndex(ref, guideToneVoicings);
+    const nextFrets = guideToneVoicings[idx]?.frets ?? guideToneVoicings[0]?.frets ?? null;
+    if (idx !== guideToneVoicingIdx) {
+      skipGuideToneVoicingRefSyncRef.current = true;
+      setGuideToneVoicingIdx(idx);
+    }
+    if (nextFrets !== guideToneSelectedFrets) setGuideToneSelectedFrets(nextFrets);
+  }, [guideToneVoicingIdx, guideToneVoicingsSig, guideToneSelectedFrets]);
+
+  useEffect(() => {
+    const current = guideToneVoicings[guideToneVoicingIdx] || guideToneVoicings[0] || null;
+
+    if (skipGuideToneVoicingRefSyncRef.current) {
+      skipGuideToneVoicingRefSyncRef.current = false;
+      return;
+    }
+
+    const selectedStillExists = !!guideToneSelectedFrets && guideToneVoicings.some((v) => v.frets === guideToneSelectedFrets);
+    if (!selectedStillExists) {
+      const nextFrets = current?.frets ?? null;
+      if (nextFrets !== (guideToneSelectedFrets ?? null)) setGuideToneSelectedFrets(nextFrets);
+    }
+
+    if (current) lastGuideToneVoicingRef.current = current;
+  }, [guideToneVoicingIdx, guideToneVoicings, guideToneVoicingsSig, guideToneSelectedFrets]);
 
   const activeGuideToneVoicing = guideToneVoicings[guideToneVoicingIdx] || guideToneVoicings[0] || null;
 
@@ -8457,6 +8489,10 @@ export default function FretboardScalesPage() {
           generator: "quartal",
           quartalType: chordQuartalType,
           quartalReference: chordQuartalReference,
+          quartalScaleName: chordQuartalScaleName,
+          quartalTonicPc: chordRootPc,
+          quartalSteps: Array.isArray(activeQuartalVoicing?.quartalSteps) ? [...activeQuartalVoicing.quartalSteps] : [],
+          quartalDegree: typeof activeQuartalVoicing?.quartalDegree === "number" ? activeQuartalVoicing.quartalDegree : null,
           ui: { usesManualForm: true, allowThirdInversion: quartalIntervals.length > 3, dropEligible: false },
         };
 
@@ -8595,6 +8631,20 @@ export default function FretboardScalesPage() {
     const rules = explainStudyRules(d?.plan);
     const naming = buildChordNamingExplanation(d?.plan);
     const voicingAnalysis = analyzeVoicingVsPlan(d?.plan, d?.voicing, d?.preferSharps ?? chordPreferSharps);
+    const isQuartalStudy = d?.plan?.layer === "quartal";
+    const quartalReferenceLabel = isQuartalStudy
+      ? (
+          d?.plan?.quartalReference === "scale"
+            ? `Diatónico a la escala ${d?.plan?.quartalScaleName || scaleName} de ${pcToName(d?.plan?.quartalTonicPc ?? chordRootPc, d?.preferSharps ?? chordPreferSharps)}`
+            : `Desde raíz de ${pcToName(d?.plan?.quartalTonicPc ?? chordRootPc, d?.preferSharps ?? chordPreferSharps)}`
+        )
+      : "";
+    const quartalStepText = isQuartalStudy && Array.isArray(d?.plan?.quartalSteps) && d.plan.quartalSteps.length
+      ? d.plan.quartalSteps.map(buildQuartalStepText).join(" · ")
+      : "—";
+    const quartalDegreeText = isQuartalStudy && typeof d?.plan?.quartalDegree === "number"
+      ? fnBuildQuartalDegreeLabel(d.plan.quartalDegree)
+      : "—";
     const tensionAnalysis = analyzeScaleTensionsForChord({
       activeScaleRootPc: rootPc,
       scaleIntervals,
@@ -8683,17 +8733,29 @@ export default function FretboardScalesPage() {
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <div className="text-xs font-semibold text-slate-700">Selección vs voicing real</div>
-              <div className="mt-2 space-y-1 text-xs text-slate-600">
-                <div><b>Pedido:</b> {voicingAnalysis.requested.join(" · ") || "—"}</div>
-                <div><b>Real:</b> {voicingAnalysis.actual.join(" · ") || "—"}</div>
-                <div><b>Notas reales:</b> {voicingAnalysis.actualNotes.join(" · ") || "—"}</div>
-                <div><b>Forma selección:</b> {voicingAnalysis.requestedForm} · <b>Forma real:</b> {voicingAnalysis.actualForm}</div>
-                <div><b>Bajo selección:</b> {voicingAnalysis.requestedBass} · <b>Bajo real:</b> {voicingAnalysis.actualBass}</div>
-                <div><b>Inv. real:</b> {voicingAnalysis.actualInversion}</div>
-                <div><b>Falta:</b> {voicingAnalysis.missing.join(" · ") || "ninguna"}</div>
-                <div><b>Sobra:</b> {voicingAnalysis.extra.join(" · ") || "nada"}</div>
-              </div>
+              <div className="text-xs font-semibold text-slate-700">{isQuartalStudy ? "Estructura cuartal real" : "Selección vs voicing real"}</div>
+              {isQuartalStudy ? (
+                <div className="mt-2 space-y-1 text-xs text-slate-600">
+                  <div><b>Apilado pedido:</b> {positionFormLabel(d?.plan?.form)} · <b>Apilado real:</b> {studyVoicingFormLabel(d?.voicing, d?.plan?.form)}</div>
+                  <div><b>Referencia:</b> {quartalReferenceLabel}</div>
+                  <div><b>Grado real:</b> {quartalDegreeText}</div>
+                  <div><b>Cadena de cuartas:</b> {quartalStepText}</div>
+                  <div><b>Notas reales:</b> {voicingAnalysis.actualNotes.join(" · ") || "—"}</div>
+                  <div><b>Bajo real:</b> {voicingAnalysis.actualBass}</div>
+                  <div><b>Inv. real:</b> {voicingAnalysis.actualInversion}</div>
+                </div>
+              ) : (
+                <div className="mt-2 space-y-1 text-xs text-slate-600">
+                  <div><b>Pedido:</b> {voicingAnalysis.requested.join(" · ") || "—"}</div>
+                  <div><b>Real:</b> {voicingAnalysis.actual.join(" · ") || "—"}</div>
+                  <div><b>Notas reales:</b> {voicingAnalysis.actualNotes.join(" · ") || "—"}</div>
+                  <div><b>Forma selección:</b> {voicingAnalysis.requestedForm} · <b>Forma real:</b> {voicingAnalysis.actualForm}</div>
+                  <div><b>Bajo selección:</b> {voicingAnalysis.requestedBass} · <b>Bajo real:</b> {voicingAnalysis.actualBass}</div>
+                  <div><b>Inv. real:</b> {voicingAnalysis.actualInversion}</div>
+                  <div><b>Falta:</b> {voicingAnalysis.missing.join(" · ") || "ninguna"}</div>
+                  <div><b>Sobra:</b> {voicingAnalysis.extra.join(" · ") || "nada"}</div>
+                </div>
+              )}
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
