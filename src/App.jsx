@@ -951,7 +951,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "2.86";
+const APP_VERSION = "2.93";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -5821,8 +5821,9 @@ function chordBadgeRoleFromDegreeLabel(label, interval) {
   if (intv === 0 || s === "1") return "root";
   if (s === "3" || s === "b3" || s === "#3") return "third";
   if (s === "5" || s === "b5" || s === "#5") return "fifth";
+  if (s === "6") return "sixth";
   if (s.includes("7")) return "seventh";
-  if (s === "6" || s.includes("13")) return "thirteenth";
+  if (s.includes("13")) return "thirteenth";
   if (s === "4" || s.includes("11")) return "eleventh";
   if (s === "2" || s.includes("9")) return "ninth";
   return "other";
@@ -10611,6 +10612,19 @@ function ChordFretboard({
   // UI compacto (especialmente para Acordes)
   const UI_SELECT_SM = "h-7 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
   const UI_SELECT_SM_TONE = "h-7 w-[60px] rounded-xl border border-slate-200 bg-white px-1 text-xs shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
+  const UI_SELECT_SM_AUTO = "h-7 rounded-xl border border-slate-200 bg-white px-2 text-xs shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
+  const fnMaxLabelCh = (items, fallback = 8) => {
+    const maxLen = (items || []).reduce((acc, item) => {
+      const label = typeof item === "string" ? item : (item?.label ?? item?.value ?? "");
+      return Math.max(acc, String(label).length);
+    }, fallback);
+    return `${Math.max(maxLen + 3, fallback)}ch`;
+  };
+  const chordFamilySelectWidth = fnMaxLabelCh(CHORD_FAMILIES, 10);
+  const chordQualitySelectWidth = fnMaxLabelCh(CHORD_QUALITIES, 10);
+  const chordSuspensionSelectWidth = fnMaxLabelCh(["Sus —", "sus2", "sus4"], 8);
+  const chordFormSelectWidth = fnMaxLabelCh(CHORD_FORMS, 10);
+  const chordInversionSelectWidth = fnMaxLabelCh(CHORD_INVERSIONS, 10);
   const UI_BTN_SM = "h-7 w-7 rounded-xl border border-slate-200 bg-white text-xs font-semibold shadow-sm hover:bg-slate-100 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed";
   const UI_INPUT_SM = "h-7 rounded-xl border border-slate-200 bg-white px-2 text-xs shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
   const UI_LABEL_SM = "block text-[11px] font-semibold text-slate-700";
@@ -11017,7 +11031,7 @@ function ChordFretboard({
                               {chordFamily === "quartal"
                                 ? chordQuartalDisplayName
                                 : chordFamily === "guide_tones"
-                                  ? guideToneDisplayName
+                                  ? `${guideToneDisplayName} · Notas guía`
                                   : chordBaseDisplayName}
                             </span>
                           </div>
@@ -11026,9 +11040,7 @@ function ChordFretboard({
                               <div className="mt-1">
                                 <ChordNoteBadgeStrip items={chordQuartalBadgeItems} bassNote={chordQuartalBassNote} colorMap={colors} />
                               </div>
-                              <div className="mt-1 text-xs text-slate-600">
-                                {chordQuartalUiText}{chordQuartalStepText ? ` · ${chordQuartalStepText}` : ""}.
-                              </div>
+                              
                             </>
                           ) : chordFamily === "guide_tones" ? (
                             <>
@@ -11103,7 +11115,7 @@ function ChordFretboard({
                         )}
                       </div>
                       {chordFamily === "quartal" ? (
-                        <div className="grid items-stretch gap-2 grid-cols-[96px_130px_180px_100px_120px_170px_220px_56px]">
+                        <div className="grid items-stretch gap-2 grid-cols-[96px_118px_110px_118px_90px_82px_118px_minmax(0,1fr)_44px]">
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Tono</label>
                           <div className="mt-1 flex items-center gap-1.5">
@@ -11167,28 +11179,38 @@ function ChordFretboard({
 
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Familia</label>
-                          <select className={UI_SELECT_SM + " mt-1"} value={chordFamily} onChange={(e) => setChordFamily(e.target.value)}>
+                          <select className={UI_SELECT_SM_AUTO + " mt-1"} style={{ width: chordFamilySelectWidth }} value={chordFamily} onChange={(e) => setChordFamily(e.target.value)}>
                             {CHORD_FAMILIES.map((item) => (
                               <option key={item.value} value={item.value}>{item.label}</option>
                             ))}
                           </select>
                         </div>
+                        {chordQuartalReference === "scale" ? (
+                          <div className="min-w-0">
+                            <label className={UI_LABEL_SM}>Escala</label>
+                            <select
+                              className={UI_SELECT_SM + " mt-1"}
+                              value={chordQuartalScaleName}
+                              onChange={(e) => setChordQuartalScaleName(e.target.value)}
+                              title="Escala usada para generar los cuartales diatónicos"
+                            >
+                              {CHORD_QUARTAL_SCALE_NAMES.map((item) => (
+                                <option key={item} value={item}>{item}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : (
+                          <div className="min-w-0" />
+                        )}
 
                         <div className="min-w-0">
-                          <label className={UI_LABEL_SM} title={`Puro: todas las cuartas son justas (4J).
-Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>Tipo cuartal</label>
-                          <select className={UI_SELECT_SM + " mt-1"} value={chordQuartalType} onChange={(e) => setChordQuartalType(e.target.value)} title={`Puro: todas las cuartas son justas (4J).
-Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
-                            {CHORD_QUARTAL_TYPES.map((item) => (
-                              <option key={item.value} value={item.value}>{item.label}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="min-w-0">
-                          <label className={UI_LABEL_SM}>Voces</label>
-                          <select className={UI_SELECT_SM + " mt-1"} value={chordQuartalVoices} onChange={(e) => setChordQuartalVoices(e.target.value)}>
-                            {CHORD_QUARTAL_VOICES.map((item) => (
+                          <label className={UI_LABEL_SM} title={`Desde raíz: construye el acorde cuartal partiendo de la tónica elegida.
+Diatónico a escala: toma la tónica elegida como centro tonal y genera acordes cuartales por grados de la escala que selecciones.
+Por eso el resultado puede no tener la misma raíz elegida.`}>Referencia</label>
+                          <select className={UI_SELECT_SM + " mt-1"} value={chordQuartalReference} onChange={(e) => setChordQuartalReference(e.target.value)} title={`Desde raíz: construye el acorde cuartal partiendo de la tónica elegida.
+Diatónico a escala: toma la tónica elegida como centro tonal y genera acordes cuartales por grados de la escala que selecciones.
+Por eso el resultado puede no tener la misma raíz elegida.`}>
+                            {CHORD_QUARTAL_REFERENCES.map((item) => (
                               <option key={item.value} value={item.value}>{item.label}</option>
                             ))}
                           </select>
@@ -11206,33 +11228,24 @@ Abierto: una o más voces se redistribuyen por octava y la cadena deja de quedar
                         </div>
 
                         <div className="min-w-0">
-                          <label className={UI_LABEL_SM} title={`Desde raíz: construye el acorde cuartal partiendo de la tónica elegida.
-Diatónico a escala: toma la tónica elegida como centro tonal y genera acordes cuartales por grados de la escala que selecciones.
-Por eso el resultado puede no tener la misma raíz elegida.`}>Referencia</label>
-                          <select className={UI_SELECT_SM + " mt-1"} value={chordQuartalReference} onChange={(e) => setChordQuartalReference(e.target.value)} title={`Desde raíz: construye el acorde cuartal partiendo de la tónica elegida.
-Diatónico a escala: toma la tónica elegida como centro tonal y genera acordes cuartales por grados de la escala que selecciones.
-Por eso el resultado puede no tener la misma raíz elegida.`}>
-                            {CHORD_QUARTAL_REFERENCES.map((item) => (
+                          <label className={UI_LABEL_SM}>Voces</label>
+                          <select className={UI_SELECT_SM + " mt-1"} value={chordQuartalVoices} onChange={(e) => setChordQuartalVoices(e.target.value)}>
+                            {CHORD_QUARTAL_VOICES.map((item) => (
                               <option key={item.value} value={item.value}>{item.label}</option>
                             ))}
                           </select>
                         </div>
 
-                        {chordQuartalReference === "scale" ? (
-                          <div className="min-w-0">
-                            <label className={UI_LABEL_SM}>Escala</label>
-                            <select
-                              className={UI_SELECT_SM + " mt-1"}
-                              value={chordQuartalScaleName}
-                              onChange={(e) => setChordQuartalScaleName(e.target.value)}
-                              title="Escala usada para generar los cuartales diatónicos"
-                            >
-                              {CHORD_QUARTAL_SCALE_NAMES.map((item) => (
-                                <option key={item} value={item}>{item}</option>
-                              ))}
-                            </select>
-                          </div>
-                        ) : null}
+                        <div className="min-w-0">
+                          <label className={UI_LABEL_SM} title={`Puro: todas las cuartas son justas (4J).
+Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>Tipo cuartal</label>
+                          <select className={UI_SELECT_SM + " mt-1"} value={chordQuartalType} onChange={(e) => setChordQuartalType(e.target.value)} title={`Puro: todas las cuartas son justas (4J).
+Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
+                            {CHORD_QUARTAL_TYPES.map((item) => (
+                              <option key={item.value} value={item.value}>{item.label}</option>
+                            ))}
+                          </select>
+                        </div>
 
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Voicing ({chordQuartalVoicings.length} opciones)</label>
@@ -11253,7 +11266,7 @@ Por eso el resultado puede no tener la misma raíz elegida.`}>
                             </button>
 
                             <select
-                              className={UI_SELECT_SM + " min-w-0 flex-1 max-w-[152px]"}
+                              className={UI_SELECT_SM + " min-w-0 flex-1"}
                               value={chordQuartalSelectedFrets || chordQuartalVoicings[chordQuartalVoicingIdx]?.frets || ""}
                               onChange={(e) => {
                                 const vFrets = e.target.value;
@@ -11289,9 +11302,9 @@ Por eso el resultado puede no tener la misma raíz elegida.`}>
                           </div>
                         </div>
 
-                        <div className="min-w-0">
-                          <label className={UI_LABEL_SM}>Dist.</label>
-                          <select className={UI_SELECT_SM + " mt-1 w-full"} value={chordMaxDist} onChange={(e) => setChordMaxDist(parseInt(e.target.value, 10))}>
+                        <div className="min-w-0 w-[44px]">
+                          <label className={UI_LABEL_SM}>Dist</label>
+                          <select className={UI_SELECT_SM + " mt-1 w-[44px] px-1 text-center"} value={chordMaxDist} onChange={(e) => setChordMaxDist(parseInt(e.target.value, 10))}>
                             {[4, 5, 6].map((n) => (
                               <option key={n} value={n}>{n}</option>
                             ))}
@@ -11455,7 +11468,12 @@ Por eso el resultado puede no tener la misma raíz elegida.`}>
                           </div>
                         </div>
                       ) : (
-                        <div className="grid items-stretch gap-2 grid-cols-[96px_130px_210px_90px_200px_200px_130px_220px_56px]">
+                        <div
+                          className="grid items-stretch gap-2"
+                          style={{
+                            gridTemplateColumns: `96px ${chordFamilySelectWidth} max-content 90px ${chordFormSelectWidth} ${chordInversionSelectWidth} 130px 220px 56px`,
+                          }}
+                        >
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Tono</label>
                           <div className="mt-1 flex items-center gap-1.5">
@@ -11525,8 +11543,8 @@ Por eso el resultado puede no tener la misma raíz elegida.`}>
 
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Calidad / Sus</label>
-                          <div className="mt-1 grid gap-1.5" style={{ gridTemplateColumns: "minmax(0,1.9fr) minmax(0,1fr)" }}>
-                            <select className={UI_SELECT_SM} value={chordQuality} onChange={(e) => setChordQuality(e.target.value)}>
+                          <div className="mt-1 flex flex-nowrap gap-1.5">
+                            <select className={UI_SELECT_SM_AUTO} style={{ width: chordQualitySelectWidth }} value={chordQuality} onChange={(e) => setChordQuality(e.target.value)}>
                               {CHORD_QUALITIES.map((q) => (
                                 <option key={q.value} value={q.value}
                                   disabled={
@@ -11539,7 +11557,8 @@ Por eso el resultado puede no tener la misma raíz elegida.`}>
                               ))}
                             </select>
                             <select
-                              className={UI_SELECT_SM}
+                              className={UI_SELECT_SM_AUTO}
+                              style={{ width: chordSuspensionSelectWidth }}
                               value={chordSuspension}
                               onChange={(e) => {
                                 const v = e.target.value;
@@ -11589,7 +11608,8 @@ Por eso el resultado puede no tener la misma raíz elegida.`}>
                           <label className={UI_LABEL_SM}>Forma</label>
                           {chordEnginePlan.ui.usesManualForm ? (
                             <select
-                              className={UI_SELECT_SM + " mt-1"}
+                              className={UI_SELECT_SM_AUTO + " mt-1"}
+                              style={{ width: chordFormSelectWidth }}
                               value={chordForm}
                               onChange={(e) => {
                                 const v = e.target.value;
@@ -11617,7 +11637,7 @@ Por eso el resultado puede no tener la misma raíz elegida.`}>
 
                         <div className="min-w-0">
                           <label className={UI_LABEL_SM}>Inversión</label>
-                          <select className={UI_SELECT_SM + " mt-1"} value={chordInversion} onChange={(e) => setChordInversion(e.target.value)}>
+                          <select className={UI_SELECT_SM_AUTO + " mt-1"} style={{ width: chordInversionSelectWidth }} value={chordInversion} onChange={(e) => setChordInversion(e.target.value)}>
                             {CHORD_INVERSIONS.map((inv) => (
                               <option key={inv.value} value={inv.value} disabled={!chordEnginePlan.ui.allowThirdInversion && inv.value === "3"}>
                                 {inv.label}
@@ -11830,7 +11850,7 @@ Por eso el resultado puede no tener la misma raíz elegida.`}>
                   ) : (
                     chordFamily === "quartal" ? (
                     activeQuartalVoicing ? (
-                        <ChordFretboard title={`Acorde ${chordQuartalDisplayName}${chordQuartalDegreeText ? ` · ${chordQuartalDegreeText}` : ""}`}  subtitle={chordQuartalUiText} voicing={activeQuartalVoicing}
+                        <ChordFretboard title={`Acorde ${chordQuartalDisplayName}${chordQuartalDegreeText ? ` · ${chordQuartalDegreeText}` : ""}`}  subtitle={`${chordQuartalUiText}${chordQuartalStepText ? ` · ${chordQuartalStepText}` : ""}.`} voicing={activeQuartalVoicing}
                           voicingIdx={chordQuartalVoicingIdx}
 			  voicingTotal={Math.max(1, chordQuartalVoicings.length)}
 			  roleForPc={quartalRoleOfPc}
@@ -11854,7 +11874,7 @@ Por eso el resultado puede no tener la misma raíz elegida.`}>
 ) : chordFamily === "guide_tones" ? (
   activeGuideToneVoicing ? (
     <GuideToneFretboard
-      title={`Acorde ${guideToneSectionDisplayName}`}
+      title={`Acorde ${guideToneDisplayName} · ${chordFamily === "guide_tones" ? "Notas guía" : chordFamily === "quartal" ? quartalSectionDisplayName : chordFamily === "tertian" ? tertianSectionDisplayName : chordFamily === "drop_voicing" ? dropVoicingSectionDisplayName : chordFamily === "triads" ? triadSectionDisplayName : chordFamily === "sevenths" ? seventhSectionDisplayName : ""}`}
       voicing={activeGuideToneVoicing}
       voicingIdx={guideToneVoicingIdx}
       voicingTotal={Math.max(1, guideToneVoicings.length)}
