@@ -951,7 +951,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "3.03";
+const APP_VERSION = "3.04";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -2295,17 +2295,23 @@ function buildStudyChordSpecFromScaleDegree({ tonicPc, scaleName, harmonyMode, s
 
 function buildStudyStaffNotesForChord({ rootPc, chordIntervals }) {
   const uniqueIntervals = Array.from(new Set((chordIntervals || []).map(mod12))).sort((a, b) => a - b);
-  const baseMidi = 45 + mod12(rootPc);
+  // C3 = 48. Así la raíz real del acorde coincide con su pc sin desplazarla a otra clase de nota.
+  const baseMidi = 48 + mod12(rootPc);
   return uniqueIntervals.map((intv) => baseMidi + intv);
 }
 
-function buildStudyStaffGroup(title, specs, caption = "") {
+function buildStudyStaffGroup(title, specs, caption = "", options = {}) {
   const safeSpecs = Array.isArray(specs) ? specs.filter((spec) => spec?.chordIntervals?.length) : [];
   return {
     title,
     caption,
     labels: safeSpecs.map((spec) => spec.label),
-    events: safeSpecs.map((spec) => ({ notes: buildStudyStaffNotesForChord(spec) })),
+    keySignature: options.keySignature,
+    events: safeSpecs.map((spec) => ({
+      notes: buildStudyStaffNotesForChord(spec),
+      spelledNotes: Array.isArray(spec.notes) ? [...spec.notes] : [],
+      preferSharps: spec.preferSharps,
+    })),
   };
 }
 
@@ -2323,6 +2329,25 @@ function describeSharedStudyNotes(aSpec, bSpec, preferSharps) {
   return {
     count: shared.length,
     text: shared.join(" · ") || "ninguna",
+  };
+}
+
+function describeDistinctStudyNotes(aSpec, bSpec, preferSharps) {
+  const aSet = buildStudyPitchClassSet(aSpec);
+  const bSet = buildStudyPitchClassSet(bSpec);
+  const onlyInA = Array.from(aSet)
+    .filter((pc) => !bSet.has(pc))
+    .sort((a, b) => a - b)
+    .map((pc) => pcToName(pc, preferSharps));
+  const onlyInB = Array.from(bSet)
+    .filter((pc) => !aSet.has(pc))
+    .sort((a, b) => a - b)
+    .map((pc) => pcToName(pc, preferSharps));
+  return {
+    onlyInA,
+    onlyInB,
+    onlyInAText: onlyInA.join(" · ") || "ninguna",
+    onlyInBText: onlyInB.join(" · ") || "ninguna",
   };
 }
 
@@ -2365,6 +2390,7 @@ function buildStudySubstitutionGuide({ chordRootPc, chordName, plan, preferSharp
   const safePreferSharps = !!preferSharps;
   const targetSpec = buildStudyChordSpecFromPlan({ rootPc: safeRootPc, preferSharps: safePreferSharps, plan, labelOverride: chordName || "" });
   const diatonicPreferSharps = computeAutoPreferSharps({ rootPc: scaleRootPc, scaleName });
+  const functionalPreferSharps = computeAutoPreferSharps({ rootPc: scaleRootPc, scaleName });
   const diatonicTargetSpec = buildStudyChordSpecFromPlan({ rootPc: safeRootPc, preferSharps: diatonicPreferSharps, plan, labelOverride: chordName || "" });
   const diatonicWithSeventh = targetSpec.chordIntervals.length >= 4;
   const harmonicPlaneLabel = studyChordPlaneLabelFromSpec(targetSpec);
@@ -2435,13 +2461,21 @@ function buildStudySubstitutionGuide({ chordRootPc, chordName, plan, preferSharp
     structure: "tetrad",
     ext7: true,
   });
-  const leadingToneDimToTargetSpec = buildStudyChordSpecFromUi({
-    rootPc: safeRootPc - 1,
-    preferSharps: computeAutoPreferSharps({ rootPc: scaleRootPc, scaleName }),
-    quality: "dim",
-    structure: "tetrad",
-    ext7: true,
-  });
+  const leadingToneDimRootPc = mod12(safeRootPc - 1);
+  const leadingToneDimPreferSharps = computeAutoPreferSharps({ rootPc: scaleRootPc, scaleName });
+  const leadingToneDimToTargetSpec = {
+    ...buildStudyChordSpecFromUi({
+      rootPc: leadingToneDimRootPc,
+      preferSharps: leadingToneDimPreferSharps,
+      quality: "dim",
+      structure: "tetrad",
+      ext7: true,
+    }),
+    notes: spellFullyDiminishedSeventhNotes({
+      rootPc: leadingToneDimRootPc,
+      preferSharps: leadingToneDimPreferSharps,
+    }),
+  };
   const borrowedParallelSpec = plan?.quality === "maj"
     ? buildStudyChordSpecFromUi({
         rootPc: safeRootPc,
@@ -2485,9 +2519,10 @@ function buildStudySubstitutionGuide({ chordRootPc, chordName, plan, preferSharp
     labelOverride: backdoorDominantInfo?.name || "",
   });
   const currentTargetSharedWithRelative = relativeSpec ? describeSharedStudyNotes(diatonicTargetSpec, relativeSpec, diatonicPreferSharps) : null;
+  const currentTargetDistinctWithRelative = relativeSpec ? describeDistinctStudyNotes(diatonicTargetSpec, relativeSpec, diatonicPreferSharps) : null;
   const currentTargetSharedWithBorrowed = borrowedParallelSpec ? describeSharedStudyNotes(targetSpec, borrowedParallelSpec, safePreferSharps) : null;
-  const targetDominantVsDim = describeSharedStudyNotes(targetDominantSpec, diminishedToTargetSpec, safePreferSharps);
-  const currentDominantVsDim = describeSharedStudyNotes(sameRootDominantSpec, sameRootDiminishedSpec, safePreferSharps);
+  const targetDominantVsDim = describeSharedStudyNotes(targetDominantSpec, diminishedToTargetSpec, functionalPreferSharps);
+  const currentDominantVsDim = describeSharedStudyNotes(sameRootDominantSpec, sameRootDiminishedSpec, functionalPreferSharps);
   const extensionBaseSpec = plan?.quality === "min"
     ? buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "min", structure: "tetrad", ext7: true })
     : plan?.quality === "dom"
@@ -2559,7 +2594,7 @@ function buildStudySubstitutionGuide({ chordRootPc, chordName, plan, preferSharp
           .filter((spec) => spec.label !== diatonicTargetSpec.label)
           .map((spec) => {
             const shared = describeSharedStudyNotes(diatonicTargetSpec, spec, diatonicPreferSharps);
-            return `${spec.label} comparte ${shared.count} notas con ${diatonicTargetSpec.label}: ${shared.text}.`;
+            return `${spec.label} comparte ${shared.count} ${shared.count === 1 ? "nota" : "notas"} con ${diatonicTargetSpec.label}: ${shared.text}.`;
           });
         return [
           `Escala activa: ${scaleSummary}.`,
@@ -2627,7 +2662,7 @@ function buildStudySubstitutionGuide({ chordRootPc, chordName, plan, preferSharp
         const internalComparisons = specs.length >= 2
           ? (() => {
               const shared = describeSharedStudyNotes(specs[0], specs[1], diatonicPreferSharps);
-              return `${specs[1].label} comparte ${shared.count} notas con ${specs[0].label}: ${shared.text}. Por eso puede funcionar como un V7 sin tónica.`;
+              return `${specs[1].label} comparte ${shared.count} ${shared.count === 1 ? "nota" : "notas"} con ${specs[0].label}: ${shared.text}. Por eso puede funcionar como un V7 sin tónica.`;
             })()
           : "No hay suficientes acordes para comparar la familia dominante.";
         return [
@@ -2636,7 +2671,7 @@ function buildStudySubstitutionGuide({ chordRootPc, chordName, plan, preferSharp
           `Familia de dominante: ${familyText || "no disponible"}.`,
           ...specs.map((spec) => {
             const shared = describeSharedStudyNotes(diatonicTargetSpec, spec, diatonicPreferSharps);
-            return `${spec.label} comparte ${shared.count} notas con ${diatonicTargetSpec.label}: ${shared.text}.`;
+            return `${spec.label} comparte ${shared.count} ${shared.count === 1 ? "nota" : "notas"} con ${diatonicTargetSpec.label}: ${shared.text}.`;
           }),
           internalComparisons,
         ];
@@ -2660,6 +2695,7 @@ function buildStudySubstitutionGuide({ chordRootPc, chordName, plan, preferSharp
         targetPlaneText,
         `Relativo: ${relativeSpec.label}.`,
         `Notas compartidas: ${relativeSpec.label} y ${diatonicTargetSpec.label} comparten ${currentTargetSharedWithRelative?.count || 0} notas: ${currentTargetSharedWithRelative?.text || "ninguna"}.`,
+        `Notas que se diferencian: ${relativeSpec.label} deja fuera ${currentTargetDistinctWithRelative?.onlyInAText || "ninguna"} de ${diatonicTargetSpec.label}, mientras que ${diatonicTargetSpec.label} deja fuera ${currentTargetDistinctWithRelative?.onlyInBText || "ninguna"} de ${relativeSpec.label}.`,
       ],
       examples: [
         "En una reharmonización suave, cambiar al relativo suele dar continuidad sin sonar a modulación.",
@@ -2692,8 +2728,8 @@ function buildStudySubstitutionGuide({ chordRootPc, chordName, plan, preferSharp
         `${tritoneToTargetSpec.label} \u2192 ${targetSpec.label}: resolución cromática por semitono descendente en el bajo, con un color más suave y jazzístico.`,
       ],
       staffGroups: [
-        buildStudyStaffGroup("Dominante real y sustituto tritonal hacia el acorde estudiado", [targetDominantSpec, tritoneToTargetSpec, targetSpec], `Orden: ${targetDominantSpec.label} · ${tritoneToTargetSpec.label} · ${targetSpec.label}`),
-        buildStudyStaffGroup("Si la misma raíz actuara como dominante", [sameRootDominantSpec, sameRootTritoneSpec], `Orden: ${sameRootDominantSpec.label} · ${sameRootTritoneSpec.label}`),
+        buildStudyStaffGroup("Dominante real y sustituto tritonal hacia el acorde estudiado", [targetDominantSpec, tritoneToTargetSpec, targetSpec], `Orden: ${targetDominantSpec.label} · ${tritoneToTargetSpec.label} · ${targetSpec.label}`, { keySignature: { type: null, count: 0 } }),
+        buildStudyStaffGroup("Si la misma raíz actuara como dominante", [sameRootDominantSpec, sameRootTritoneSpec], `Orden: ${sameRootDominantSpec.label} · ${sameRootTritoneSpec.label}`, { keySignature: { type: null, count: 0 } }),
       ],
     },
     {
@@ -2714,8 +2750,8 @@ function buildStudySubstitutionGuide({ chordRootPc, chordName, plan, preferSharp
         `Lectura: crea un movimiento cromático en el bajo y una llegada muy compacta hacia ${targetSpec.label}.`,
       ],
       staffGroups: [
-        buildStudyStaffGroup("Dominante y disminuido asociado hacia el acorde estudiado", [targetDominantSpec, diminishedToTargetSpec, targetSpec], `Orden: ${targetDominantSpec.label} · ${diminishedToTargetSpec.label} · ${targetSpec.label}`),
-        buildStudyStaffGroup("Conversión de la raíz actual a dominante + disminuido", [sameRootDominantSpec, sameRootDiminishedSpec], `Comparten ${currentDominantVsDim.count} notas: ${currentDominantVsDim.text}`),
+        buildStudyStaffGroup("Dominante y disminuido asociado hacia el acorde estudiado", [targetDominantSpec, diminishedToTargetSpec, targetSpec], `Orden: ${targetDominantSpec.label} · ${diminishedToTargetSpec.label} · ${targetSpec.label}`, { keySignature: { type: null, count: 0 } }),
+        buildStudyStaffGroup("Conversión de la raíz actual a dominante + disminuido", [sameRootDominantSpec, sameRootDiminishedSpec], `Comparten ${currentDominantVsDim.count} notas: ${currentDominantVsDim.text}`, { keySignature: { type: null, count: 0 } }),
       ],
     },
     {
@@ -2733,7 +2769,7 @@ function buildStudySubstitutionGuide({ chordRootPc, chordName, plan, preferSharp
         "Si el acorde actual ya fuera dominante, la interpolación consistiría en anteponerle su ii.",
       ],
       staffGroups: [
-        buildStudyStaffGroup("Cadena II-V-I hacia el acorde estudiado", [iiToTargetSpec, targetDominantSpec, targetSpec], `Orden: ${iiToTargetSpec.label} · ${targetDominantSpec.label} · ${targetSpec.label}`),
+        buildStudyStaffGroup("Cadena II-V-I hacia el acorde estudiado", [iiToTargetSpec, targetDominantSpec, targetSpec], `Orden: ${iiToTargetSpec.label} · ${targetDominantSpec.label} · ${targetSpec.label}`, { keySignature: { type: null, count: 0 } }),
       ],
     },
   ];
@@ -4251,6 +4287,20 @@ function spellChordNotes({ rootPc, chordIntervals, preferSharps }) {
   return chordIntervals.map((interval) => {
     const deg = chordDegreeNumberFromInterval(interval);
     const letter = LETTERS[(rootIdx + (deg - 1)) % 7];
+    const pc = mod12(rootPc + interval);
+    return spellPcWithLetter(pc, letter);
+  });
+}
+
+function spellFullyDiminishedSeventhNotes({ rootPc, preferSharps }) {
+  const rootName = pcToName(rootPc, preferSharps);
+  const rootLetter = rootName[0];
+  const rootIdx = Math.max(0, LETTERS.indexOf(rootLetter));
+  const intervals = [0, 3, 6, 9];
+  const degreeOffsets = [0, 2, 4, 6]; // 1, b3, b5, bb7
+
+  return intervals.map((interval, idx) => {
+    const letter = LETTERS[(rootIdx + degreeOffsets[idx]) % 7];
     const pc = mod12(rootPc + interval);
     return spellPcWithLetter(pc, letter);
   });
@@ -6598,6 +6648,17 @@ function midiToSpelledPitch(midi, preferSharps) {
   return { midi, name, letter, accidental, octave };
 }
 
+function spelledPitchFromNameAndMidi(name, midi) {
+  const raw = String(name || "").trim() || "C";
+  const letter = raw[0]?.toUpperCase?.() || "C";
+  const accidentalRaw = raw.slice(1);
+  const accidental = accidentalRaw
+    .replaceAll("#", "\u266F")
+    .replaceAll("b", "\u266D");
+  const octave = Math.floor(midi / 12) - 1;
+  return { midi, name: raw, letter, accidental, octave };
+}
+
 function staffStepFromPitch(spelled, clef) {
   const baseOctave = clef === "bass" ? 2 : 4;
   const baseLetter = clef === "bass" ? "G" : "E";
@@ -6667,6 +6728,410 @@ function displayedAccidentalForNote(note, signatureMap) {
   if (noteAccidental === keyAccidental) return "";
   if (!noteAccidental && keyAccidental) return "\u266E";
   return noteAccidental;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function staffBulletGlyph(level) {
+  if (level <= 0) return "◦";
+  if (level === 1) return "▪";
+  return "–";
+}
+
+function formatStudyLineWithBoldPrefixHtml(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+  const colonIdx = raw.indexOf(":");
+  if (colonIdx <= 0) return escapeHtml(raw);
+  const label = raw.slice(0, colonIdx + 1);
+  const rest = raw.slice(colonIdx + 1).trim();
+  return `<b>${escapeHtml(label)}</b>${rest ? ` ${escapeHtml(rest)}` : ""}`;
+}
+
+function buildStudyStructuredLinesHtml(lines, level = 0) {
+  const safeLines = Array.isArray(lines) ? lines.map((line) => String(line || "").trim()).filter(Boolean) : [];
+  if (!safeLines.length) return "";
+
+  const parts = [];
+  let idx = 0;
+  while (idx < safeLines.length) {
+    const line = safeLines[idx];
+    const isHeading = /:\s*$/.test(line);
+    if (isHeading) {
+      const children = [];
+      idx += 1;
+      while (idx < safeLines.length && !/:\s*$/.test(safeLines[idx])) {
+        children.push(safeLines[idx]);
+        idx += 1;
+      }
+      parts.push(
+        `<div class="pdf-study-line-group">` +
+          `<div class="pdf-study-line"><span class="pdf-study-bullet">${escapeHtml(staffBulletGlyph(level))}</span><span><b>${escapeHtml(line)}</b></span></div>` +
+          `<div class="pdf-study-children">${buildStudyStructuredLinesHtml(children, level + 1)}</div>` +
+        `</div>`
+      );
+      continue;
+    }
+
+    parts.push(
+      `<div class="pdf-study-line">` +
+        `<span class="pdf-study-bullet">${escapeHtml(staffBulletGlyph(level))}</span>` +
+        `<span>${formatStudyLineWithBoldPrefixHtml(line)}</span>` +
+      `</div>`
+    );
+    idx += 1;
+  }
+
+  return `<div class="pdf-study-lines">${parts.join("")}</div>`;
+}
+
+function buildStudyOuterBlockHtml(label, content) {
+  if (!content || (Array.isArray(content) && !content.length)) return "";
+  const heading = `<div class="pdf-study-line pdf-study-line--outer"><span class="pdf-study-bullet">●</span><span><b>${escapeHtml(label)}:</b>${Array.isArray(content) ? "" : ` ${escapeHtml(content)}`}</span></div>`;
+  const body = Array.isArray(content)
+    ? `<div class="pdf-study-children">${buildStudyStructuredLinesHtml(content, 0)}</div>`
+    : "";
+  return `<div class="pdf-study-block">${heading}${body}</div>`;
+}
+
+function buildMusicStaffRenderState({ events, preferSharps, clefMode = "guitar", beatsPerBar = 4, beatUnit = 4, keySignature = null }) {
+  const safeEvents = Array.isArray(events) ? events.filter((evt) => Array.isArray(evt?.notes) && evt.notes.length) : [];
+  if (!safeEvents.length) return null;
+
+  const { clef, transpose } = resolveStaffSpec(safeEvents, clefMode);
+  const lineGap = 14;
+  const staffTop = 28;
+  const signatureType = keySignature?.type || null;
+  const signatureCount = Math.max(0, Math.min(7, Number(keySignature?.count) || 0));
+  const signatureGlyph = signatureType === "sharp" ? "\u266F" : signatureType === "flat" ? "\u266D" : "";
+  const signatureSteps = signatureType ? keySignatureStepsForClef(clef, signatureType).slice(0, signatureCount) : [];
+  const signatureWidth = signatureSteps.length ? (signatureSteps.length * 11) + 8 : 0;
+  const signatureMap = keySignatureLetterAccidentals(keySignature);
+  const idealNoteSpacing = 38;
+  const minNoteSpacing = 24;
+  const targetInnerWidth = 880;
+  const eventCount = Math.max(1, safeEvents.length);
+  const noteSpacing = Math.max(minNoteSpacing, Math.min(idealNoteSpacing, targetInnerWidth / Math.max(eventCount, beatsPerBar)));
+  const measureWidth = noteSpacing * beatsPerBar;
+  const leftPad = 86 + signatureWidth;
+  const rightPad = 24;
+  const measures = Math.max(1, Math.ceil(safeEvents.length / beatsPerBar));
+  const width = leftPad + (measures * measureWidth) + rightPad;
+  const staffBottom = staffTop + (lineGap * 4);
+  const clefGlyph = clef === "bass" ? "\uD834\uDD22" : "\uD834\uDD1E";
+
+  const renderedEvents = safeEvents.map((evt, idx) => {
+    const measureIdx = Math.floor(idx / beatsPerBar);
+    const beatIdx = idx % beatsPerBar;
+    const x = leftPad + (measureIdx * measureWidth) + 22 + (beatIdx * noteSpacing);
+    const eventPreferSharps = typeof evt?.preferSharps === "boolean" ? evt.preferSharps : preferSharps;
+    const notes = evt.notes
+      .map((midi, noteIdx) => {
+        const renderedMidi = midi + transpose;
+        const spelledName = Array.isArray(evt?.spelledNotes) ? evt.spelledNotes[noteIdx] : "";
+        return spelledName
+          ? spelledPitchFromNameAndMidi(spelledName, renderedMidi)
+          : midiToSpelledPitch(renderedMidi, eventPreferSharps);
+      })
+      .map((spelled) => {
+        const step = staffStepFromPitch(spelled, clef);
+        const displayAccidental = displayedAccidentalForNote(spelled, signatureMap);
+        return { ...spelled, step, displayAccidental };
+      })
+      .sort((a, b) => a.step - b.step);
+    const avgStep = notes.reduce((sum, note) => sum + note.step, 0) / notes.length;
+    const stemDown = avgStep >= 4;
+    return { x, notes, stemDown };
+  });
+
+  const verticalExtents = renderedEvents.flatMap((evt) => {
+    if (!evt.notes.length) return [];
+    const stemNote = evt.stemDown ? evt.notes[0] : evt.notes[evt.notes.length - 1];
+    const stemY = staffYFromStep(stemNote.step, staffTop, lineGap);
+    const stemEndY = evt.stemDown ? stemY + 30 : stemY - 30;
+
+    return evt.notes.map((note) => {
+      const y = staffYFromStep(note.step, staffTop, lineGap);
+      const ledgerYs = ledgerLineSteps(note.step).map((step) => staffYFromStep(step, staffTop, lineGap));
+      const ledgerTop = ledgerYs.length ? Math.min(...ledgerYs) - 2 : y - 7;
+      const ledgerBottom = ledgerYs.length ? Math.max(...ledgerYs) + 2 : y + 7;
+      const noteTop = y - 7;
+      const noteBottom = y + 7;
+      const accidentalTop = note.displayAccidental ? y - 10 : noteTop;
+      const accidentalBottom = note.displayAccidental ? y + 6 : noteBottom;
+      return {
+        top: Math.min(noteTop, ledgerTop, accidentalTop, stemY, stemEndY),
+        bottom: Math.max(noteBottom, ledgerBottom, accidentalBottom, stemY, stemEndY),
+      };
+    });
+  });
+
+  const contentTop = verticalExtents.length ? Math.min(staffTop - 12, ...verticalExtents.map((x) => x.top)) - 8 : staffTop - 20;
+  const contentBottom = verticalExtents.length ? Math.max(staffBottom + 12, ...verticalExtents.map((x) => x.bottom)) + 8 : staffBottom + 20;
+  const height = Math.max(132, contentBottom - contentTop);
+
+  return {
+    safeEvents,
+    clef,
+    transpose,
+    lineGap,
+    staffTop,
+    staffBottom,
+    signatureType,
+    signatureCount,
+    signatureGlyph,
+    signatureSteps,
+    signatureWidth,
+    signatureMap,
+    noteSpacing,
+    measureWidth,
+    leftPad,
+    rightPad,
+    measures,
+    width,
+    height,
+    contentTop,
+    contentBottom,
+    clefGlyph,
+    beatsPerBar,
+    beatUnit,
+    renderedEvents,
+  };
+}
+
+function buildMusicStaffSvgMarkup({ events, preferSharps, clefMode = "guitar", beatsPerBar = 4, beatUnit = 4, keySignature = null }) {
+  const state = buildMusicStaffRenderState({ events, preferSharps, clefMode, beatsPerBar, beatUnit, keySignature });
+  if (!state) return "";
+
+  const {
+    lineGap,
+    staffTop,
+    staffBottom,
+    signatureType,
+    signatureGlyph,
+    signatureSteps,
+    signatureWidth,
+    measures,
+    measureWidth,
+    leftPad,
+    width,
+    height,
+    contentTop,
+    clef,
+    clefGlyph,
+    beatsPerBar: safeBeatsPerBar,
+    beatUnit: safeBeatUnit,
+    renderedEvents,
+  } = state;
+
+  const staffLines = [0, 1, 2, 3, 4]
+    .map((line) => {
+      const y = staffTop + (line * lineGap);
+      return `<line x1="16" y1="${y}" x2="${width - 12}" y2="${y}" stroke="#475569" stroke-width="1" />`;
+    })
+    .join("");
+
+  const measureLines = Array.from({ length: measures - 1 }, (_, i) => {
+    const x = leftPad + ((i + 1) * measureWidth);
+    return `<line x1="${x}" y1="${staffTop - 1}" x2="${x}" y2="${staffBottom + 1}" stroke="#475569" stroke-width="1" />`;
+  }).join("");
+
+  const signatureMarks = signatureSteps.map((step, idx) => {
+    const x = 58 + (idx * 11);
+    const y = staffYFromStep(step, staffTop, lineGap) + 4;
+    return `<text x="${x}" y="${y}" font-size="18" fill="#0f172a">${escapeHtml(signatureGlyph)}</text>`;
+  }).join("");
+
+  const eventMarkup = renderedEvents.map((evt) => {
+    const noteMarkup = evt.notes.map((note) => {
+      const y = staffYFromStep(note.step, staffTop, lineGap);
+      const ledgerMarkup = ledgerLineSteps(note.step).map((step) => {
+        const ly = staffYFromStep(step, staffTop, lineGap);
+        return `<line x1="${evt.x - 10}" y1="${ly}" x2="${evt.x + 10}" y2="${ly}" stroke="#475569" stroke-width="1" />`;
+      }).join("");
+      const accidentalMarkup = note.displayAccidental
+        ? `<text x="${evt.x - 18}" y="${y + 4}" font-size="14" fill="#0f172a">${escapeHtml(note.displayAccidental)}</text>`
+        : "";
+      return `<g>${ledgerMarkup}${accidentalMarkup}<ellipse cx="${evt.x}" cy="${y}" rx="6.8" ry="5.1" transform="rotate(-20 ${evt.x} ${y})" fill="#0f172a" /></g>`;
+    }).join("");
+
+    let stemMarkup = "";
+    if (evt.notes.length) {
+      const stemNote = evt.stemDown ? evt.notes[0] : evt.notes[evt.notes.length - 1];
+      const stemY = staffYFromStep(stemNote.step, staffTop, lineGap);
+      const x = evt.stemDown ? evt.x - 6 : evt.x + 6;
+      const y1 = stemY;
+      const y2 = evt.stemDown ? stemY + 30 : stemY - 30;
+      stemMarkup = `<line x1="${x}" y1="${y1}" x2="${x}" y2="${y2}" stroke="#0f172a" stroke-width="1.4" />`;
+    }
+    return `<g>${noteMarkup}${stemMarkup}</g>`;
+  }).join("");
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 ${contentTop} ${width} ${height}" role="img" aria-label="Pentagrama">` +
+      staffLines +
+      measureLines +
+      `<line x1="16" y1="${staffTop - 1}" x2="16" y2="${staffBottom + 1}" stroke="#475569" stroke-width="1" />` +
+      `<line x1="${width - 12}" y1="${staffTop - 1}" x2="${width - 12}" y2="${staffBottom + 1}" stroke="#475569" stroke-width="1.5" />` +
+      `<text x="30" y="${clef === "bass" ? staffTop + 37 : staffTop + 42}" font-size="${clef === "bass" ? 34 : 42}" fill="#0f172a">${escapeHtml(clefGlyph)}</text>` +
+      signatureMarks +
+      `<text x="${62 + signatureWidth}" y="${staffTop + 16}" font-size="16" font-weight="700" fill="#0f172a">${safeBeatsPerBar}</text>` +
+      `<text x="${62 + signatureWidth}" y="${staffTop + 38}" font-size="16" font-weight="700" fill="#0f172a">${safeBeatUnit}</text>` +
+      eventMarkup +
+    `</svg>`
+  );
+}
+
+function studyRoleFromPlanInterval(interval, plan) {
+  const safeInterval = mod12(interval);
+  if (safeInterval === 0) return "root";
+  if (safeInterval === mod12(plan?.thirdOffset ?? 4)) return "third";
+  if (safeInterval === mod12(plan?.fifthOffset ?? 7)) return "fifth";
+  if (plan?.ext7 && plan?.seventhOffset != null && safeInterval === mod12(plan.seventhOffset)) return "seventh";
+  if (plan?.ext13 && safeInterval === 9) return "thirteenth";
+  if (plan?.ext11 && safeInterval === 5) return "eleventh";
+  if (plan?.ext9 && safeInterval === 2) return "ninth";
+  if (plan?.ext6 && safeInterval === 9) return "sixth";
+  return "other";
+}
+
+function buildStudyDisplayLabelForPc({ pc, rootPc, preferSharps, plan, showIntervalsLabel, showNotesLabel }) {
+  const interval = mod12(pc - rootPc);
+  const note = spellNoteFromChordInterval(rootPc, interval, preferSharps);
+  const degree = intervalToChordToken(interval, {
+    ext6: !!plan?.ext6,
+    ext9: !!plan?.ext9 && plan?.structure !== "triad",
+    ext11: !!plan?.ext11 && plan?.structure !== "triad",
+    ext13: !!plan?.ext13 && plan?.structure !== "triad",
+  });
+
+  if (!showIntervalsLabel && !showNotesLabel) return degree;
+  if (showIntervalsLabel && showNotesLabel) return `${degree}-${note}`;
+  if (showIntervalsLabel) return degree;
+  return note;
+}
+
+function buildStudyBadgeItemsFromPlan({ rootPc, preferSharps, plan }) {
+  if (!plan?.intervals?.length) return [];
+  const safeIntervals = Array.from(new Set(plan.intervals.map(mod12))).sort((a, b) => a - b);
+  const notes = spellChordNotes({ rootPc, chordIntervals: safeIntervals, preferSharps });
+  return buildChordBadgeItems({
+    notes,
+    intervals: safeIntervals,
+    ext6: !!plan.ext6,
+    ext9: !!plan.ext9,
+    ext11: !!plan.ext11,
+    ext13: !!plan.ext13,
+    structure: plan.structure || "triad",
+  });
+}
+
+function buildPdfChordBadgeStripHtml({ items, bassNote, colorMap }) {
+  const safeItems = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (!safeItems.length && !bassNote) return "";
+
+  const itemHtml = safeItems.map((item, idx) => {
+    const bg = (colorMap && colorMap[item.role]) || (colorMap && colorMap.other) || "#0ea5e9";
+    const fg = isDark(bg) ? "#ffffff" : "#0f172a";
+    return (
+      `<div class="pdf-badge-item">` +
+        `<div class="pdf-badge-note">${escapeHtml(item.note)}</div>` +
+        `<div class="pdf-badge-degree" style="background:${escapeHtml(bg)};color:${escapeHtml(fg)};">${escapeHtml(item.degree)}</div>` +
+      `</div>`
+    );
+  }).join("");
+
+  const bassHtml = bassNote
+    ? (
+        `<div class="pdf-badge-item pdf-badge-item--bass">` +
+          `<div class="pdf-badge-note">${escapeHtml(bassNote)}</div>` +
+          `<div class="pdf-badge-degree pdf-badge-degree--bass">Bajo</div>` +
+        `</div>`
+      )
+    : "";
+
+  return `<div class="pdf-badge-strip">${itemHtml}${bassHtml}</div>`;
+}
+
+function buildPdfCompactVoicingFretboardHtml({
+  voicing,
+  rootPc,
+  preferSharps,
+  plan,
+  colors,
+  showIntervalsLabel,
+  showNotesLabel,
+}) {
+  if (!voicing?.notes?.length || !plan) return "";
+
+  const sortedNotes = [...voicing.notes].sort((a, b) => pitchAt(a.sIdx, a.fret) - pitchAt(b.sIdx, b.fret));
+  const notesMap = new Map();
+  for (const n of sortedNotes) {
+    notesMap.set(`${n.sIdx}:${n.fret}`, {
+      pc: n.pc,
+      isBass: `${n.sIdx}:${n.fret}` === voicing.bassKey,
+    });
+  }
+  const mutedStrings = new Set(Array.isArray(voicing?.mutedSIdx) ? voicing.mutedSIdx : []);
+
+  const fretted = sortedNotes.map((n) => n.fret).filter((fret) => fret > 0);
+  const maxFret = fretted.length ? Math.max(...fretted) : 0;
+  const lastVisibleFret = Math.max(14, maxFret || 4);
+  const displayFrets = Array.from({ length: lastVisibleFret + 1 }, (_, idx) => idx);
+
+  const headerHtml = displayFrets.map((fret) => `<div class="pdf-mini-neck-head${fret === 0 ? " pdf-mini-neck-head--open" : ""}">${fret}</div>`).join("");
+  const rowsHtml = STRINGS.map((st, sIdx) => {
+    const cellsHtml = displayFrets.map((fret) => {
+      const item = notesMap.get(`${sIdx}:${fret}`);
+      const inlay = fret > 0 && hasInlayCell(fret, sIdx)
+        ? `<span class="pdf-mini-neck-inlay${item ? " pdf-mini-neck-inlay--active" : ""}"></span>`
+        : "";
+      const mutedAtOpen = fret === 0 && mutedStrings.has(sIdx);
+      if (!item) {
+        return (
+          `<div class="pdf-mini-neck-cell${fret === 0 ? " pdf-mini-neck-cell--open" : ""}">` +
+            inlay +
+            (mutedAtOpen ? `<span class="pdf-mini-neck-muted">X</span>` : "") +
+          `</div>`
+        );
+      }
+
+      const interval = mod12(item.pc - rootPc);
+      const role = studyRoleFromPlanInterval(interval, plan);
+      const bg = colors?.[role] || colors?.other || "#e2e8f0";
+      const fg = role === "other" ? "#0f172a" : (isDark(bg) ? "#ffffff" : "#0f172a");
+      const label = buildStudyDisplayLabelForPc({
+        pc: item.pc,
+        rootPc,
+        preferSharps,
+        plan,
+        showIntervalsLabel,
+        showNotesLabel,
+      });
+      return (
+        `<div class="pdf-mini-neck-cell${fret === 0 ? " pdf-mini-neck-cell--open" : ""}">` +
+          inlay +
+          `<span class="pdf-mini-neck-dot${item.isBass ? " pdf-mini-neck-dot--bass" : ""}" style="background:${escapeHtml(bg)};color:${escapeHtml(fg)};">${escapeHtml(label)}</span>` +
+        `</div>`
+      );
+    }).join("");
+    return `<div class="pdf-mini-neck-string">${escapeHtml(st.label)}</div>${cellsHtml}`;
+  }).join("");
+
+  const fullColumns = `36px 28px repeat(${Math.max(0, displayFrets.length - 1)}, minmax(0, 1fr))`;
+  return (
+    `<div class="pdf-mini-neck" style="grid-template-columns:${fullColumns};">` +
+      `<div class="pdf-mini-neck-corner"></div>${headerHtml}` +
+      rowsHtml +
+    `</div>`
+  );
 }
 
 function formatChordBadgeDegree(label) {
@@ -6750,139 +7215,128 @@ function ChordNoteBadgeStrip({ items, bassNote, bassLabel = "Bajo", colorMap }) 
   );
 }
 
-function MusicStaff({ events, preferSharps, clefMode = "guitar", beatsPerBar = 4, beatUnit = 4, keySignature = null }) {
-  const safeEvents = Array.isArray(events) ? events.filter((evt) => Array.isArray(evt?.notes) && evt.notes.length) : [];
-  if (!safeEvents.length) return null;
+function MusicStaff({ events, preferSharps, clefMode = "guitar", beatsPerBar = 4, beatUnit = 4, keySignature = null, footerLabels = null, showFooter = false }) {
+  const state = buildMusicStaffRenderState({ events, preferSharps, clefMode, beatsPerBar, beatUnit, keySignature });
+  if (!state) return null;
 
-  const { clef, transpose } = resolveStaffSpec(safeEvents, clefMode);
-  const lineGap = 12;
-  const staffTop = 28;
-  const signatureType = keySignature?.type || null;
-  const signatureCount = Math.max(0, Math.min(7, Number(keySignature?.count) || 0));
-  const signatureGlyph = signatureType === "sharp" ? "\u266F" : signatureType === "flat" ? "\u266D" : "";
-  const signatureSteps = signatureType ? keySignatureStepsForClef(clef, signatureType).slice(0, signatureCount) : [];
-  const signatureWidth = signatureSteps.length ? (signatureSteps.length * 11) + 8 : 0;
-  const signatureMap = keySignatureLetterAccidentals(keySignature);
-  const idealNoteSpacing = 38;
-  const minNoteSpacing = 24;
-  const targetInnerWidth = 880;
-  const eventCount = Math.max(1, safeEvents.length);
-  const noteSpacing = Math.max(minNoteSpacing, Math.min(idealNoteSpacing, targetInnerWidth / Math.max(eventCount, beatsPerBar)));
-  const measureWidth = noteSpacing * beatsPerBar;
-  const leftPad = 86 + signatureWidth;
-  const rightPad = 24;
-  const measures = Math.max(1, Math.ceil(safeEvents.length / beatsPerBar));
-  const width = leftPad + (measures * measureWidth) + rightPad;
-  const staffBottom = staffTop + (lineGap * 4);
-  const clefGlyph = clef === "bass" ? "\uD834\uDD22" : "\uD834\uDD1E";
+  const {
+    lineGap,
+    staffTop,
+    staffBottom,
+    signatureType,
+    signatureGlyph,
+    signatureSteps,
+    signatureWidth,
+    measureWidth,
+    leftPad,
+    measures,
+    width,
+    height,
+    contentTop,
+    clef,
+    clefGlyph,
+    renderedEvents,
+    safeEvents,
+  } = state;
 
-  const renderedEvents = safeEvents.map((evt, idx) => {
-    const measureIdx = Math.floor(idx / beatsPerBar);
-    const beatIdx = idx % beatsPerBar;
-    const x = leftPad + (measureIdx * measureWidth) + 22 + (beatIdx * noteSpacing);
-    const notes = evt.notes
-      .map((midi) => midiToSpelledPitch(midi + transpose, preferSharps))
-      .map((spelled) => {
-        const step = staffStepFromPitch(spelled, clef);
-        const displayAccidental = displayedAccidentalForNote(spelled, signatureMap);
-        return { ...spelled, step, displayAccidental };
+  const footerRows = showFooter
+    ? safeEvents.map((evt, idx) => {
+        const label = Array.isArray(footerLabels) && footerLabels[idx]
+          ? footerLabels[idx]
+          : safeEvents.length === 1
+            ? "Notas"
+            : `Evento ${idx + 1}`;
+        const noteCells = Array.isArray(evt?.spelledNotes) && evt.spelledNotes.length
+          ? evt.spelledNotes
+          : (renderedEvents[idx]?.notes || []).map((note) => note.name).filter(Boolean);
+        return { label, noteCells: noteCells.length ? noteCells : ["—"] };
       })
-      .sort((a, b) => a.step - b.step);
-    const avgStep = notes.reduce((sum, note) => sum + note.step, 0) / notes.length;
-    const stemDown = avgStep >= 4;
-    return { x, notes, stemDown };
-  });
-
-  const verticalExtents = renderedEvents.flatMap((evt) => {
-    if (!evt.notes.length) return [];
-    const stemNote = evt.stemDown ? evt.notes[0] : evt.notes[evt.notes.length - 1];
-    const stemY = staffYFromStep(stemNote.step, staffTop, lineGap);
-    const stemEndY = evt.stemDown ? stemY + 30 : stemY - 30;
-
-    return evt.notes.map((note) => {
-      const y = staffYFromStep(note.step, staffTop, lineGap);
-      const ledgerYs = ledgerLineSteps(note.step).map((step) => staffYFromStep(step, staffTop, lineGap));
-      const ledgerTop = ledgerYs.length ? Math.min(...ledgerYs) - 2 : y - 7;
-      const ledgerBottom = ledgerYs.length ? Math.max(...ledgerYs) + 2 : y + 7;
-      const noteTop = y - 7;
-      const noteBottom = y + 7;
-      const accidentalTop = note.displayAccidental ? y - 10 : noteTop;
-      const accidentalBottom = note.displayAccidental ? y + 6 : noteBottom;
-      return {
-        top: Math.min(noteTop, ledgerTop, accidentalTop, stemY, stemEndY),
-        bottom: Math.max(noteBottom, ledgerBottom, accidentalBottom, stemY, stemEndY),
-      };
-    });
-  });
-
-  const contentTop = verticalExtents.length ? Math.min(staffTop - 12, ...verticalExtents.map((x) => x.top)) - 8 : staffTop - 20;
-  const contentBottom = verticalExtents.length ? Math.max(staffBottom + 12, ...verticalExtents.map((x) => x.bottom)) + 8 : staffBottom + 20;
-  const height = Math.max(132, contentBottom - contentTop);
+    : [];
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white px-2 py-2">
-      <svg
-        width={width}
-        height={height}
-        viewBox={`0 ${contentTop} ${width} ${height}`}
-        className="block"
-        role="img"
-        aria-label="Pentagrama en 4 por 4 con la ruta en negras"
-      >
-        {[0, 1, 2, 3, 4].map((line) => {
-          const y = staffTop + (line * lineGap);
-          return <line key={line} x1={16} y1={y} x2={width - 12} y2={y} stroke="#475569" strokeWidth="1" />;
-        })}
+    <div className="space-y-3">
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white px-2 py-2">
+        <svg
+          width={width}
+          height={height}
+          viewBox={`0 ${contentTop} ${width} ${height}`}
+          className="block"
+          role="img"
+          aria-label="Pentagrama en 4 por 4 con la ruta en negras"
+        >
+          {[0, 1, 2, 3, 4].map((line) => {
+            const y = staffTop + (line * lineGap);
+            return <line key={line} x1={16} y1={y} x2={width - 12} y2={y} stroke="#475569" strokeWidth="1" />;
+          })}
 
-        {Array.from({ length: measures - 1 }, (_, i) => {
-          const x = leftPad + ((i + 1) * measureWidth);
-          return <line key={i} x1={x} y1={staffTop - 1} x2={x} y2={staffBottom + 1} stroke="#475569" strokeWidth="1" />;
-        })}
+          {Array.from({ length: measures - 1 }, (_, i) => {
+            const x = leftPad + ((i + 1) * measureWidth);
+            return <line key={i} x1={x} y1={staffTop - 1} x2={x} y2={staffBottom + 1} stroke="#475569" strokeWidth="1" />;
+          })}
 
-        <line x1={16} y1={staffTop - 1} x2={16} y2={staffBottom + 1} stroke="#475569" strokeWidth="1" />
-        <line x1={width - 12} y1={staffTop - 1} x2={width - 12} y2={staffBottom + 1} stroke="#475569" strokeWidth="1.5" />
+          <line x1={16} y1={staffTop - 1} x2={16} y2={staffBottom + 1} stroke="#475569" strokeWidth="1" />
+          <line x1={width - 12} y1={staffTop - 1} x2={width - 12} y2={staffBottom + 1} stroke="#475569" strokeWidth="1.5" />
 
-        <text x="30" y={clef === "bass" ? staffTop + 37 : staffTop + 42} fontSize={clef === "bass" ? "34" : "42"} fill="#0f172a">
-          {clefGlyph}
-        </text>
+          <text x="30" y={clef === "bass" ? staffTop + 37 : staffTop + 42} fontSize={clef === "bass" ? "34" : "42"} fill="#0f172a">
+            {clefGlyph}
+          </text>
 
-        {signatureSteps.map((step, idx) => {
-          const x = 58 + (idx * 11);
-          const y = staffYFromStep(step, staffTop, lineGap) + 4;
-          return <text key={`${signatureType}-${idx}`} x={x} y={y} fontSize="18" fill="#0f172a">{signatureGlyph}</text>;
-        })}
+          {signatureSteps.map((step, idx) => {
+            const x = 58 + (idx * 11);
+            const y = staffYFromStep(step, staffTop, lineGap) + 4;
+            return <text key={`${signatureType}-${idx}`} x={x} y={y} fontSize="18" fill="#0f172a">{signatureGlyph}</text>;
+          })}
 
-        <text x={62 + signatureWidth} y={staffTop + 16} fontSize="16" fontWeight="700" fill="#0f172a">{beatsPerBar}</text>
-        <text x={62 + signatureWidth} y={staffTop + 38} fontSize="16" fontWeight="700" fill="#0f172a">{beatUnit}</text>
+          <text x={62 + signatureWidth} y={staffTop + 16} fontSize="16" fontWeight="700" fill="#0f172a">{beatsPerBar}</text>
+          <text x={62 + signatureWidth} y={staffTop + 38} fontSize="16" fontWeight="700" fill="#0f172a">{beatUnit}</text>
 
-        {renderedEvents.map((evt, evtIdx) => (
-          <g key={evtIdx}>
-            {evt.notes.map((note, noteIdx) => {
-              const y = staffYFromStep(note.step, staffTop, lineGap);
-              const lines = ledgerLineSteps(note.step);
-              return (
-                <g key={noteIdx}>
-                  {lines.map((step) => {
-                    const ly = staffYFromStep(step, staffTop, lineGap);
-                    return <line key={step} x1={evt.x - 10} y1={ly} x2={evt.x + 10} y2={ly} stroke="#475569" strokeWidth="1" />;
-                  })}
-                  {note.displayAccidental ? <text x={evt.x - 18} y={y + 4} fontSize="14" fill="#0f172a">{note.displayAccidental}</text> : null}
-                  <ellipse cx={evt.x} cy={y} rx="6.8" ry="5.1" transform={`rotate(-20 ${evt.x} ${y})`} fill="#0f172a" />
-                </g>
-              );
-            })}
+          {renderedEvents.map((evt, evtIdx) => (
+            <g key={evtIdx}>
+              {evt.notes.map((note, noteIdx) => {
+                const y = staffYFromStep(note.step, staffTop, lineGap);
+                const lines = ledgerLineSteps(note.step);
+                return (
+                  <g key={noteIdx}>
+                    {lines.map((step) => {
+                      const ly = staffYFromStep(step, staffTop, lineGap);
+                      return <line key={step} x1={evt.x - 10} y1={ly} x2={evt.x + 10} y2={ly} stroke="#475569" strokeWidth="1" />;
+                    })}
+                    {note.displayAccidental ? <text x={evt.x - 18} y={y + 4} fontSize="14" fill="#0f172a">{note.displayAccidental}</text> : null}
+                    <ellipse cx={evt.x} cy={y} rx="6.8" ry="5.1" transform={`rotate(-20 ${evt.x} ${y})`} fill="#0f172a" />
+                  </g>
+                );
+              })}
 
-            {evt.notes.length ? (() => {
-              const stemNote = evt.stemDown ? evt.notes[0] : evt.notes[evt.notes.length - 1];
-              const stemY = staffYFromStep(stemNote.step, staffTop, lineGap);
-              const x = evt.stemDown ? evt.x - 6 : evt.x + 6;
-              const y1 = stemY;
-              const y2 = evt.stemDown ? stemY + 30 : stemY - 30;
-              return <line x1={x} y1={y1} x2={x} y2={y2} stroke="#0f172a" strokeWidth="1.4" />;
-            })() : null}
-          </g>
-        ))}
-      </svg>
+              {evt.notes.length ? (() => {
+                const stemNote = evt.stemDown ? evt.notes[0] : evt.notes[evt.notes.length - 1];
+                const stemY = staffYFromStep(stemNote.step, staffTop, lineGap);
+                const x = evt.stemDown ? evt.x - 6 : evt.x + 6;
+                const y1 = stemY;
+                const y2 = evt.stemDown ? stemY + 30 : stemY - 30;
+                return <line x1={x} y1={y1} x2={x} y2={y2} stroke="#0f172a" strokeWidth="1.4" />;
+              })() : null}
+            </g>
+          ))}
+        </svg>
+      </div>
+      {footerRows.length ? (
+        <div className="overflow-x-auto text-xs leading-5 text-slate-600">
+          <table className="inline-table w-auto border-separate border-spacing-x-2 border-spacing-y-1 font-mono text-[12px]">
+            <tbody>
+              {footerRows.map((row, rowIdx) => (
+                <tr key={`${row.label}-${rowIdx}`}>
+                  <td className="pr-2 font-semibold text-slate-700 text-left align-top whitespace-nowrap">{`${row.label}:`}</td>
+                  {row.noteCells.map((note, noteIdx) => (
+                    <td key={`${row.label}-${rowIdx}-${noteIdx}`} className="min-w-[20px] px-1 text-center align-top whitespace-nowrap">
+                      {note}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -8747,9 +9201,14 @@ export default function FretboardScalesPage() {
 
   const chordDetectStaffEvents = useMemo(
     () => chordDetectSelectedNotes.length
-      ? [{ notes: [...chordDetectSelectedNotes].sort((a, b) => a.pitch - b.pitch).map((n) => n.pitch) }]
+      ? [{
+          notes: [...chordDetectSelectedNotes].sort((a, b) => a.pitch - b.pitch).map((n) => n.pitch),
+          spelledNotes: [...chordDetectSelectedNotes]
+            .sort((a, b) => a.pitch - b.pitch)
+            .map((n) => buildDetectedCandidateNoteNameForPc(n.pc, chordDetectSelectedCandidate, chordPreferSharps)),
+        }]
       : [],
-    [chordDetectSelectedNotes]
+    [chordDetectSelectedNotes, chordDetectSelectedCandidate, chordPreferSharps]
   );
 
   const chordDetectSelectionPositionsText = useMemo(
@@ -9293,6 +9752,7 @@ export default function FretboardScalesPage() {
           intervals: mainDegreeLabels || mainIntervals.map((i) => intervalToChordToken(i, { ext6: chordExt6, ext9: chordExt9 && chordStructure !== "triad", ext11: chordExt11 && chordStructure !== "triad", ext13: chordExt13 && chordStructure !== "triad" })),
           plan: chordEnginePlan,
           voicing: currentMainVoicing,
+          positionForm: chordPositionForm,
           bassName: currentMainVoicing ? mainPcToSpelledName(currentMainVoicing.bassPc) : pcToName(chordBassPc, mainPreferSharps),
           inversionLabel: currentMainVoicing
             ? actualInversionLabelFromVoicing(chordEnginePlan, currentMainVoicing)
@@ -9341,6 +9801,7 @@ export default function FretboardScalesPage() {
           intervals: quartalIntervals.map((interval) => intervalToSimpleChordDegreeToken(interval)),
           plan: quartalPlan,
           voicing: quartalVoicing,
+          positionForm: chordQuartalSpread,
           bassName: quartalVoicing?.bassPc != null ? spellNoteFromChordInterval(quartalRootPc, mod12(quartalVoicing.bassPc - quartalRootPc), chordPreferSharps) : "—",
           inversionLabel: quartalVoicing ? actualInversionLabelFromVoicing(quartalPlan, quartalVoicing) : "Según voicing",
         };
@@ -9373,6 +9834,7 @@ export default function FretboardScalesPage() {
           intervals: [...guideToneDef.degreeLabels],
           plan: guidePlan,
           voicing: activeGuideToneVoicing,
+          positionForm: guideToneForm,
           bassName: activeGuideToneVoicing?.bassPc != null ? spellNoteFromChordInterval(chordRootPc, mod12(activeGuideToneVoicing.bassPc - chordRootPc), chordPreferSharps) : guideToneBassNote,
           inversionLabel: activeGuideToneVoicing
             ? actualInversionLabelFromVoicing(guidePlan, activeGuideToneVoicing)
@@ -9410,6 +9872,7 @@ export default function FretboardScalesPage() {
         intervals: mainIntervals.map((i) => intervalToChordToken(i, { ext6: chordExt6, ext9: chordExt9 && chordStructure !== "triad", ext11: chordExt11 && chordStructure !== "triad", ext13: chordExt13 && chordStructure !== "triad" })),
         plan: chordEnginePlan,
         voicing: activeChordVoicing,
+        positionForm: chordPositionForm,
         bassName: activeChordVoicing ? mainPcToSpelledName(activeChordVoicing.bassPc) : pcToName(chordBassPc, mainPreferSharps),
         inversionLabel: activeChordVoicing
           ? actualInversionLabelFromVoicing(chordEnginePlan, activeChordVoicing)
@@ -9453,6 +9916,7 @@ export default function FretboardScalesPage() {
       intervals: ints.map((i) => intervalToChordToken(i, { ext6: !!slot?.ext6, ext9: !!slot?.ext9 && slot?.structure !== "triad", ext11: !!slot?.ext11 && slot?.structure !== "triad", ext13: !!slot?.ext13 && slot?.structure !== "triad" })),
       plan,
       voicing,
+      positionForm: slot?.positionForm || positionFormFromEffectiveForm(slot?.form, "closed"),
       bassName: voicing ? pcToName(voicing.bassPc, pref) : pcToName(mod12((slot?.rootPc || 0) + (plan?.bassInterval || 0)), pref),
       inversionLabel: CHORD_INVERSIONS.find((x) => x.value === (slot?.inversion || "root"))?.label || "Fundamental",
     };
@@ -9517,7 +9981,10 @@ export default function FretboardScalesPage() {
     }, [substitutionSections.length]);
     const activeSubstitutionSection = substitutionSections[studySubstitutionSectionIdx] || null;
     const studyStaffEvents = d?.voicing?.notes?.length
-      ? [{ notes: [...d.voicing.notes].sort((a, b) => pitchAt(a.sIdx, a.fret) - pitchAt(b.sIdx, b.fret)).map((n) => pitchAt(n.sIdx, n.fret)) }]
+      ? [{
+          notes: [...d.voicing.notes].sort((a, b) => pitchAt(a.sIdx, a.fret) - pitchAt(b.sIdx, b.fret)).map((n) => pitchAt(n.sIdx, n.fret)),
+          spelledNotes: Array.isArray(d?.notes) ? [...d.notes] : [],
+        }]
       : [];
     const studyVoicingPositionsText = d?.voicing?.notes?.length
       ? [...d.voicing.notes]
@@ -9592,6 +10059,288 @@ export default function FretboardScalesPage() {
         </div>
       );
     };
+    const exportStudyPdf = () => {
+      const printWindow = window.open("", "_blank");
+      if (!printWindow) return;
+
+      const exportDateText = new Intl.DateTimeFormat("es-ES", {
+        dateStyle: "full",
+        timeStyle: "short",
+      }).format(new Date());
+
+      const studyHeaderRows = [
+        ["Acorde estudiado", d?.chordName || "—"],
+        ["Escala activa", `${pcToName(rootPc, computeAutoPreferSharps({ rootPc, scaleName }))} ${scaleName}`],
+        ["Notas del acorde", d?.notes?.join(" · ") || "—"],
+        ["Fórmula", d?.intervals?.join(" · ") || "—"],
+        ["Bajo", d?.bassName || "—"],
+        ["Inversión", d?.inversionLabel || "—"],
+        ["Capa", chordEngineLayerLabel(d?.plan)],
+        ["Generador", chordEngineGeneratorLabel(d?.plan)],
+      ];
+
+      const summaryCardsHtml = [
+        {
+          title: "Identidad",
+          rows: [
+            ["Nombre", d?.chordName || "—"],
+            ["Capa", chordEngineLayerLabel(d?.plan)],
+            ["Generador", chordEngineGeneratorLabel(d?.plan)],
+          ],
+        },
+        {
+          title: "Construcción",
+          rows: [
+            ["Fórmula", d?.intervals?.join(" · ") || "—"],
+            ["Notas", d?.notes?.join(" · ") || "—"],
+            ["Bajo", d?.bassName || "—"],
+            ["Inversión", d?.inversionLabel || "—"],
+          ],
+        },
+        {
+          title: "Dominantes relacionados",
+          rows: [
+            ["Dominante normal", `${dominant.name} · ${dominant.notes.join(" · ")}`],
+            ["Backdoor dominant", `${backdoorDominant.name} · ${backdoorDominant.notes.join(" · ")}`],
+          ],
+        },
+      ].map((card) => (
+        `<section class="pdf-card">` +
+          `<h3>${escapeHtml(card.title)}</h3>` +
+          `<div class="pdf-kv">` +
+            card.rows.map(([label, value]) => `<div><b>${escapeHtml(label)}:</b> ${escapeHtml(value)}</div>`).join("") +
+          `</div>` +
+        `</section>`
+      )).join("");
+
+      const studyHeaderSummary = buildChordHeaderSummary({
+        name: d?.chordName,
+        plan: d?.plan,
+        voicing: d?.voicing,
+        positionForm: d?.positionForm || positionFormFromEffectiveForm(d?.plan?.form, "closed"),
+      });
+      const studyVoicingNoteText = d?.voicing?.notes?.length
+        ? [...d.voicing.notes]
+            .sort((a, b) => pitchAt(a.sIdx, a.fret) - pitchAt(b.sIdx, b.fret))
+            .map((n) => spellNoteFromChordInterval(d?.rootPc ?? chordRootPc, mod12(n.pc - (d?.rootPc ?? chordRootPc)), d?.preferSharps ?? chordPreferSharps))
+            .join(" – ")
+        : ((d?.notes || []).join(" – ") || "—");
+      const studyBadgeStripHtml = buildPdfChordBadgeStripHtml({
+        items: buildStudyBadgeItemsFromPlan({
+          rootPc: d?.rootPc ?? chordRootPc,
+          preferSharps: d?.preferSharps ?? chordPreferSharps,
+          plan: d?.plan,
+        }),
+        bassNote: d?.bassName || null,
+        colorMap: colors,
+      });
+      const studyCompactFretboardHtml = buildPdfCompactVoicingFretboardHtml({
+        voicing: d?.voicing,
+        rootPc: d?.rootPc ?? chordRootPc,
+        preferSharps: d?.preferSharps ?? chordPreferSharps,
+        plan: d?.plan,
+        colors,
+        showIntervalsLabel,
+        showNotesLabel,
+      });
+      const studyVoicingHtml = studyStaffEvents.length
+        ? (
+            `<section class="pdf-card">` +
+              `<h3>Voicing real en el mástil</h3>` +
+              `<div class="pdf-caption"><b>Acorde</b> ${escapeHtml(studyHeaderSummary || d?.chordName || "—")}</div>` +
+              `<div class="pdf-caption"><b>Notas:</b> ${escapeHtml(studyVoicingNoteText)}. Bajo marcado con anillo negro.</div>` +
+              (studyBadgeStripHtml || "") +
+              (studyCompactFretboardHtml ? `<div class="pdf-mini-neck-wrap">${studyCompactFretboardHtml}</div>` : "") +
+              `<div class="pdf-caption"><b>Digitación:</b> ${escapeHtml(studyVoicingPositionsText || "—")}</div>` +
+              `<h3>Pentagrama del voicing actual</h3>` +
+              `<div class="pdf-staff-wrap">${buildMusicStaffSvgMarkup({ events: studyStaffEvents, preferSharps: d?.preferSharps ?? chordPreferSharps, clefMode: "guitar", keySignature: substitutionKeySignature })}</div>` +
+            `</section>`
+          )
+        : "";
+
+      const substitutionIndexHtml = substitutionSections.map((section, sectionIdx) => {
+        const itemLinks = section.items.map((item, itemIdx) => (
+          `<li><a href="#pdf-item-${sectionIdx + 1}-${itemIdx + 1}">${escapeHtml(`${sectionIdx + 1}.${itemIdx + 1} ${item.title}`)}</a></li>`
+        )).join("");
+        return (
+          `<li>` +
+            `<a href="#pdf-section-${sectionIdx + 1}">${escapeHtml(`${sectionIdx + 1}. ${section.title}`)}</a>` +
+            (itemLinks ? `<ul>${itemLinks}</ul>` : "") +
+          `</li>`
+        );
+      }).join("");
+
+      const substitutionSectionsHtml = substitutionSections.map((section, sectionIdx) => {
+        const sectionSubIndexHtml = section.items.length
+          ? (
+              `<nav class="pdf-subindex">` +
+                `<div class="pdf-subindex-title">Índice de la sección</div>` +
+                `<ul>` +
+                  section.items.map((item, itemIdx) => `<li><a href="#pdf-item-${sectionIdx + 1}-${itemIdx + 1}">${escapeHtml(`${sectionIdx + 1}.${itemIdx + 1} ${item.title}`)}</a></li>`).join("") +
+                `</ul>` +
+              `</nav>`
+            )
+          : "";
+
+        const itemsHtml = section.items.map((item, itemIdx) => {
+          const staffGroupsHtml = Array.isArray(item.staffGroups) && item.staffGroups.length
+            ? item.staffGroups.filter((group) => group?.events?.length).map((group) => {
+                const footerHtml = (
+                  `<table class="pdf-staff-notes">` +
+                    `<tbody>` +
+                      group.events.map((evt, evtIdx) => {
+                        const chordLabel = group.labels?.[evtIdx] || `Acorde ${evtIdx + 1}`;
+                        const noteCells = Array.isArray(evt?.spelledNotes) && evt.spelledNotes.length ? evt.spelledNotes : ["—"];
+                        return (
+                          `<tr>` +
+                            `<td class="pdf-staff-notes-label">${escapeHtml(`${chordLabel}:`)}</td>` +
+                            noteCells.map((note) => `<td>${escapeHtml(note)}</td>`).join("") +
+                          `</tr>`
+                        );
+                      }).join("") +
+                    `</tbody>` +
+                  `</table>`
+                );
+                return (
+                  `<section class="pdf-staff-card">` +
+                    `<div class="pdf-staff-title">${escapeHtml(group.title)}</div>` +
+                    (group.caption ? `<div class="pdf-caption">${escapeHtml(group.caption)}</div>` : "") +
+                    (Array.isArray(group.labels) && group.labels.length ? `<div class="pdf-caption">Acordes en este orden: ${escapeHtml(group.labels.join(" · "))}</div>` : "") +
+                    `<div class="pdf-staff-wrap">${buildMusicStaffSvgMarkup({ events: group.events, preferSharps: d?.preferSharps ?? chordPreferSharps, clefMode: "guitar", keySignature: group.keySignature ?? substitutionKeySignature })}</div>` +
+                    footerHtml +
+                  `</section>`
+                );
+              }).join("")
+            : "";
+
+          return (
+            `<article id="pdf-item-${sectionIdx + 1}-${itemIdx + 1}" class="pdf-item">` +
+              `<h3>${escapeHtml(`${sectionIdx + 1}.${itemIdx + 1} ${item.title}`)}</h3>` +
+              buildStudyOuterBlockHtml("Qué es", item.definition) +
+              buildStudyOuterBlockHtml("Cuándo aplica", item.appliesWhen) +
+              buildStudyOuterBlockHtml("Cómo sale", item.derivation) +
+              buildStudyOuterBlockHtml("Ejemplos y lectura", item.examples) +
+              staffGroupsHtml +
+            `</article>`
+          );
+        }).join("");
+
+        return (
+          `<section id="pdf-section-${sectionIdx + 1}" class="pdf-section">` +
+            `<h2>${escapeHtml(`${sectionIdx + 1}. ${section.title}`)}</h2>` +
+            sectionSubIndexHtml +
+            itemsHtml +
+          `</section>`
+        );
+      }).join("");
+
+      const html = `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(`Estudio de ${d?.chordName || "acorde"}`)}</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { margin: 0; font-family: Georgia, "Times New Roman", serif; color: #0f172a; background: #f8fafc; font-size: 11px; }
+    .pdf-page { max-width: 980px; margin: 0 auto; padding: 24px 24px 28px; background: #ffffff; }
+    .pdf-header { border-bottom: 2px solid #cbd5e1; padding-bottom: 16px; margin-bottom: 24px; }
+    .pdf-header h1 { margin: 0; font-size: 20px; line-height: 1.2; }
+    .pdf-header p { margin: 8px 0 0; color: #475569; font-size: 10px; }
+    .pdf-meta { margin-top: 14px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; font-size: 10px; }
+    .pdf-index, .pdf-subindex, .pdf-card, .pdf-staff-card { break-inside: avoid; }
+    .pdf-index { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 14px; padding: 16px; margin-bottom: 24px; }
+    .pdf-index h2, .pdf-section h2 { margin: 0 0 10px; font-size: 16px; }
+    .pdf-index ol, .pdf-index ul, .pdf-subindex ul { margin: 8px 0 0 18px; padding: 0; }
+    .pdf-index li, .pdf-subindex li { margin: 3px 0; font-size: 10px; }
+    .pdf-index a, .pdf-subindex a { color: #0f172a; text-decoration: none; }
+    .pdf-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 24px; }
+    .pdf-card { border: 1px solid #cbd5e1; border-radius: 14px; padding: 14px 16px; background: #f8fafc; }
+    .pdf-card h3 { margin: 0 0 8px; font-size: 13px; }
+    .pdf-kv, .pdf-caption { font-size: 9px; line-height: 1.4; color: #334155; }
+    .pdf-caption + .pdf-caption { margin-top: 4px; }
+    .pdf-section { margin-top: 18px; break-before: page; page-break-before: always; }
+    .pdf-subindex { margin: 12px 0 18px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; background: #f8fafc; }
+    .pdf-subindex-title { font-size: 10px; font-weight: 700; margin-bottom: 6px; }
+    .pdf-item { border-top: 1px solid #e2e8f0; padding-top: 14px; margin-top: 14px; }
+    .pdf-item h3 { margin: 0 0 10px; font-size: 13px; }
+    .pdf-study-block { margin: 8px 0 0; }
+    .pdf-study-line { display: flex; align-items: flex-start; gap: 8px; text-align: justify; line-height: 1.45; font-size: 10px; }
+    .pdf-study-line--outer { font-size: 11px; }
+    .pdf-study-bullet { width: 14px; flex: 0 0 14px; color: #475569; }
+    .pdf-study-children { padding-left: 20px; margin-top: 4px; }
+    .pdf-study-line-group { margin-top: 4px; }
+    .pdf-staff-card { margin-top: 12px; border: 1px solid #cbd5e1; border-radius: 12px; padding: 10px; background: #fff; }
+    .pdf-staff-title { font-size: 10px; font-weight: 700; margin-bottom: 4px; }
+    .pdf-staff-wrap { overflow: hidden; border: 1px solid #e2e8f0; border-radius: 10px; padding: 8px; background: #fff; margin-top: 8px; }
+    .pdf-staff-wrap svg { display: block; max-width: 100%; height: auto; }
+    .pdf-staff-notes { margin-top: 8px; width: auto; border-collapse: separate; border-spacing: 8px 4px; font-family: "Courier New", monospace; font-size: 9px; }
+    .pdf-staff-notes-label { padding-right: 10px; font-weight: 700; white-space: nowrap; color: #334155; }
+    .pdf-staff-notes td { text-align: center; white-space: nowrap; }
+    .pdf-badge-strip { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 8px; }
+    .pdf-badge-item { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 28px; }
+    .pdf-badge-note { font-size: 9px; font-weight: 700; color: #334155; }
+    .pdf-badge-degree { min-width: 28px; padding: 3px 6px; border-radius: 7px; text-align: center; font-size: 8px; font-weight: 700; line-height: 1; box-shadow: 0 1px 2px rgba(15,23,42,0.14); }
+    .pdf-badge-item--bass { min-width: 46px; }
+    .pdf-badge-degree--bass { min-width: 46px; background: #334155; color: #fff; }
+    .pdf-mini-neck-wrap { margin-top: 10px; overflow: hidden; border: 1px solid #cbd5e1; border-radius: 12px; padding: 8px 10px; background: #fff; }
+    .pdf-mini-neck { display: grid; gap: 6px 6px; align-items: center; width: 100%; }
+    .pdf-mini-neck-corner { height: 14px; }
+    .pdf-mini-neck-head { text-align: center; font-size: 9px; font-weight: 700; color: #475569; }
+    .pdf-mini-neck-head--open { font-size: 8px; }
+    .pdf-mini-neck-string { text-align: right; padding-right: 6px; font-size: 9px; font-weight: 700; color: #334155; }
+    .pdf-mini-neck-cell { position: relative; width: 100%; min-width: 0; height: 28px; border: 1px solid #cbd5e1; border-radius: 8px; background: rgba(248,250,252,0.72); display: flex; align-items: center; justify-content: center; }
+    .pdf-mini-neck-cell--open { border-radius: 6px; }
+    .pdf-mini-neck-dot { position: relative; z-index: 2; display: inline-flex; width: 20px; height: 20px; border-radius: 999px; align-items: center; justify-content: center; padding: 0 3px; text-align: center; font-size: 6px; line-height: 1.05; font-weight: 700; box-shadow: 0 0 0 2px rgba(15,23,42,0.08); }
+    .pdf-mini-neck-dot--bass { box-shadow: inset 0 0 0 2px rgba(0,0,0,0.95); }
+    .pdf-mini-neck-inlay { position: absolute; bottom: 4px; width: 8px; height: 8px; border-radius: 999px; background: rgba(148,163,184,0.6); z-index: 1; }
+    .pdf-mini-neck-inlay--active { opacity: 0.32; }
+    .pdf-mini-neck-muted { font-size: 9px; font-weight: 700; color: #94a3b8; }
+    @media print {
+      body { background: #fff; }
+      a { color: inherit; text-decoration: none; }
+      .pdf-page { max-width: none; margin: 0; padding: 0; }
+    }
+    @page { size: A4; margin: 14mm; }
+  </style>
+</head>
+<body>
+  <main class="pdf-page">
+    <section class="pdf-header">
+      <h1>${escapeHtml(`Estudio del acorde ${d?.chordName || "—"}`)}</h1>
+      <p>Documento generado desde Modo estudio. Fecha de exportación: ${escapeHtml(exportDateText)}.</p>
+      <div class="pdf-meta">
+        ${studyHeaderRows.map(([label, value]) => `<div><b>${escapeHtml(label)}:</b> ${escapeHtml(value)}</div>`).join("")}
+      </div>
+    </section>
+
+    <nav class="pdf-index">
+      <h2>Índice general</h2>
+      <ol>${substitutionIndexHtml}</ol>
+    </nav>
+
+    <section class="pdf-cards">
+      ${summaryCardsHtml}
+    </section>
+
+    ${studyVoicingHtml}
+
+    ${substitutionSectionsHtml}
+  </main>
+</body>
+</html>`;
+
+      printWindow.document.open();
+      printWindow.document.write(html);
+      printWindow.document.close();
+      printWindow.onload = () => {
+        printWindow.focus();
+        window.setTimeout(() => {
+          printWindow.focus();
+          printWindow.print();
+        }, 150);
+      };
+    };
     return (
       <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -9599,9 +10348,16 @@ export default function FretboardScalesPage() {
             <div className="text-sm font-semibold text-slate-800">Modo estudio</div>
             <div className="text-xs text-slate-600">{d?.title} · {d?.chordName}</div>
           </div>
-          <button type="button" className={UI_BTN_SM + " w-auto px-3"} onClick={() => setStudyOpen((v) => !v)}>
-            {studyOpen ? "Ocultar" : "Ver análisis"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {studyOpen ? (
+              <button type="button" className={UI_BTN_SM + " w-auto px-3"} onClick={exportStudyPdf}>
+                Exportar PDF
+              </button>
+            ) : null}
+            <button type="button" className={UI_BTN_SM + " w-auto px-3"} onClick={() => setStudyOpen((v) => !v)}>
+              {studyOpen ? "Ocultar" : "Ver análisis"}
+            </button>
+          </div>
         </div>
 
         {studyOpen ? (
@@ -9715,6 +10471,8 @@ export default function FretboardScalesPage() {
                     preferSharps={d?.preferSharps ?? chordPreferSharps}
                     clefMode="guitar"
                     keySignature={{ type: null, count: 0 }}
+                    showFooter
+                    footerLabels={[d?.chordName || "Voicing"]}
                   />
                 </div>
               </div>
@@ -9822,7 +10580,10 @@ export default function FretboardScalesPage() {
                                 {Array.isArray(item.staffGroups) && item.staffGroups.length ? (
                                   <div className="space-y-3 pt-4">
                                     {item.staffGroups.filter((group) => group?.events?.length).map((group, groupIdx) => (
-                                      <div key={`${item.title}-staff-${groupIdx}`} className="rounded-lg border border-slate-200 bg-white p-3">
+                                      <div
+                                        key={`${item.title}-staff-${groupIdx}-${group.title}-${group.labels?.join("|") || ""}-${group.events.map((evt) => evt.notes.join(",")).join("|")}`}
+                                        className="rounded-lg border border-slate-200 bg-white p-3"
+                                      >
                                         <div className="text-xs font-semibold text-slate-700">{group.title}</div>
                                         {group.caption ? <div className="mt-1 text-justify text-xs leading-5 text-slate-500">{group.caption}</div> : null}
                                         {Array.isArray(group.labels) && group.labels.length ? (
@@ -9833,7 +10594,9 @@ export default function FretboardScalesPage() {
                                             events={group.events}
                                             preferSharps={d?.preferSharps ?? chordPreferSharps}
                                             clefMode="guitar"
-                                            keySignature={substitutionKeySignature}
+                                            keySignature={group.keySignature ?? substitutionKeySignature}
+                                            showFooter
+                                            footerLabels={group.labels}
                                           />
                                         </div>
                                       </div>
@@ -10348,8 +11111,11 @@ export default function FretboardScalesPage() {
   );
 
   const routeStaffEvents = useMemo(
-    () => routeLabResult.path.map((n) => ({ notes: [pitchAt(n.sIdx, n.fret)] })),
-    [routeLabResult.path]
+    () => routeLabResult.path.map((n) => ({
+      notes: [pitchAt(n.sIdx, n.fret)],
+      spelledNotes: [labelForPc(mod12(STRINGS[n.sIdx].pc + n.fret))],
+    })),
+    [routeLabResult.path, labelForPc]
   );
 
   const routeLabDebugLines = useMemo(() => {
@@ -11048,6 +11814,8 @@ function ChordFretboard({
                 preferSharps={chordDetectSelectedCandidate?.preferSharps ?? chordPreferSharps}
                 clefMode="guitar"
                 keySignature={{ type: null, count: 0 }}
+                showFooter
+                footerLabels={[chordDetectSelectedCandidate?.name || "Selección"]}
               />
             </div>
           </div>
@@ -11565,7 +12333,14 @@ function ChordFretboard({
     {routeStaffEvents.length ? (
             <div className="mt-3">
               <div className="mb-1 text-xs font-semibold text-slate-700">Pentagrama 4/4</div>
-              <MusicStaff events={routeStaffEvents} preferSharps={preferSharps} clefMode="guitar" keySignature={routeKeySignature} />
+              <MusicStaff
+                events={routeStaffEvents}
+                preferSharps={preferSharps}
+                clefMode="guitar"
+                keySignature={routeKeySignature}
+                showFooter
+                footerLabels={routeStaffEvents.map((_, idx) => `Paso ${idx + 1}`)}
+              />
             </div>
           ) : null}
 
