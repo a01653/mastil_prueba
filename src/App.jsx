@@ -951,7 +951,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "3.02";
+const APP_VERSION = "3.03";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -2121,6 +2121,843 @@ function buildBackdoorDominantInfo(targetRootPc, preferSharps) {
     notes,
     relation: `bVII7 \u2192 ${targetName}`,
   };
+}
+
+function buildStudyChordLabel({ rootPc, preferSharps, quality, suspension = "none", structure = "triad", ext7 = false, ext6 = false, ext9 = false, ext11 = false, ext13 = false }) {
+  return chordDisplayNameFromUI({
+    rootPc,
+    preferSharps,
+    quality,
+    suspension,
+    structure,
+    ext7,
+    ext6,
+    ext9,
+    ext11,
+    ext13,
+  });
+}
+
+function buildStudyChordSpecFromUi({
+  rootPc,
+  preferSharps,
+  quality,
+  suspension = "none",
+  structure = "triad",
+  ext7 = false,
+  ext6 = false,
+  ext9 = false,
+  ext11 = false,
+  ext13 = false,
+  labelOverride = "",
+}) {
+  const safeRootPc = mod12(rootPc);
+  const chordIntervals = Array.from(new Set(buildChordIntervals({
+    quality,
+    suspension,
+    structure,
+    ext7,
+    ext6,
+    ext9,
+    ext11,
+    ext13,
+  }).map(mod12))).sort((a, b) => a - b);
+  const safePreferSharps = !!preferSharps;
+  const label = labelOverride || buildStudyChordLabel({
+    rootPc: safeRootPc,
+    preferSharps: safePreferSharps,
+    quality,
+    suspension,
+    structure,
+    ext7,
+    ext6,
+    ext9,
+    ext11,
+    ext13,
+  });
+  const notes = spellChordNotes({ rootPc: safeRootPc, chordIntervals, preferSharps: safePreferSharps });
+  return {
+    rootPc: safeRootPc,
+    preferSharps: safePreferSharps,
+    label,
+    chordIntervals,
+    notes,
+  };
+}
+
+function buildStudyChordSpecCustom({ rootPc, preferSharps, chordIntervals, label }) {
+  const safeRootPc = mod12(rootPc);
+  const safePreferSharps = !!preferSharps;
+  const uniqueIntervals = Array.from(new Set((chordIntervals || []).map(mod12))).sort((a, b) => a - b);
+  return {
+    rootPc: safeRootPc,
+    preferSharps: safePreferSharps,
+    label: label || pcToName(safeRootPc, safePreferSharps),
+    chordIntervals: uniqueIntervals,
+    notes: spellChordNotes({ rootPc: safeRootPc, chordIntervals: uniqueIntervals, preferSharps: safePreferSharps }),
+  };
+}
+
+function buildStudyChordSpecFromPlan({ rootPc, preferSharps, plan, labelOverride = "" }) {
+  const safeRootPc = mod12(rootPc);
+  const safePreferSharps = !!preferSharps;
+  const planIntervals = Array.isArray(plan?.intervals) && plan.intervals.length
+    ? Array.from(new Set(plan.intervals.map(mod12))).sort((a, b) => a - b)
+    : [];
+  const fallbackIntervals = plan?.quality
+    ? Array.from(new Set(buildChordIntervals({
+        quality: plan.quality,
+        suspension: plan.suspension || "none",
+        structure: plan.structure || "triad",
+        ext7: !!plan.ext7,
+        ext6: !!plan.ext6,
+        ext9: !!plan.ext9,
+        ext11: !!plan.ext11,
+        ext13: !!plan.ext13,
+      }).map(mod12))).sort((a, b) => a - b)
+    : [];
+  const chordIntervals = planIntervals.length ? planIntervals : fallbackIntervals;
+  const notes = spellChordNotes({ rootPc: safeRootPc, chordIntervals, preferSharps: safePreferSharps });
+  const label = labelOverride || (
+    plan?.quality
+      ? buildStudyChordLabel({
+          rootPc: safeRootPc,
+          preferSharps: safePreferSharps,
+          quality: plan.quality,
+          suspension: plan.suspension || "none",
+          structure: plan.structure || "triad",
+          ext7: !!plan.ext7,
+          ext6: !!plan.ext6,
+          ext9: !!plan.ext9,
+          ext11: !!plan.ext11,
+          ext13: !!plan.ext13,
+        })
+      : `${pcToName(safeRootPc, safePreferSharps)} (${chordIntervals.map((i) => intervalToDegreeToken(i)).join(" · ")})`
+  );
+  return {
+    rootPc: safeRootPc,
+    preferSharps: safePreferSharps,
+    label,
+    chordIntervals,
+    notes,
+  };
+}
+
+function buildStudyChordSpecFromDegree(degree, fallbackPreferSharps) {
+  if (!degree?.supported) return null;
+  return buildStudyChordSpecFromUi({
+    rootPc: degree.rootPc,
+    preferSharps: degree.spellPreferSharps ?? fallbackPreferSharps,
+    quality: degree.quality,
+    suspension: degree.suspension || "none",
+    structure: degree.structure,
+    ext7: !!degree.ext7,
+    ext6: !!degree.ext6,
+    ext9: !!degree.ext9,
+    ext11: !!degree.ext11,
+    ext13: !!degree.ext13,
+    labelOverride: degree.name,
+  });
+}
+
+function buildStudyChordSpecFromScaleDegree({ tonicPc, scaleName, harmonyMode, scaleIntervals, degreeIndex, withSeventh, preferSharps }) {
+  const built = buildHarmonyDegreeChord({ scaleName, harmonyMode, scaleIntervals, degreeIndex, withSeventh });
+  if (!built) return null;
+  const rootPc = mod12(tonicPc + built.rootOffset);
+  const suffix = chordDisplaySuffixOnly({
+    quality: built.quality,
+    suspension: built.suspension || "none",
+    structure: built.structure,
+    ext7: !!built.ext7,
+    ext6: !!built.ext6,
+    ext9: !!built.ext9,
+    ext11: !!built.ext11,
+    ext13: !!built.ext13,
+  });
+  const degreeLabel = `${ROMAN_DEGREES[degreeIndex] || romanizeDegreeNumber(degreeIndex + 1)}${suffix}`;
+  const spec = buildStudyChordSpecFromUi({
+    rootPc,
+    preferSharps,
+    quality: built.quality,
+    suspension: built.suspension || "none",
+    structure: built.structure,
+    ext7: !!built.ext7,
+    ext6: !!built.ext6,
+    ext9: !!built.ext9,
+    ext11: !!built.ext11,
+    ext13: !!built.ext13,
+  });
+  return {
+    ...spec,
+    degreeLabel,
+  };
+}
+
+function buildStudyStaffNotesForChord({ rootPc, chordIntervals }) {
+  const uniqueIntervals = Array.from(new Set((chordIntervals || []).map(mod12))).sort((a, b) => a - b);
+  const baseMidi = 45 + mod12(rootPc);
+  return uniqueIntervals.map((intv) => baseMidi + intv);
+}
+
+function buildStudyStaffGroup(title, specs, caption = "") {
+  const safeSpecs = Array.isArray(specs) ? specs.filter((spec) => spec?.chordIntervals?.length) : [];
+  return {
+    title,
+    caption,
+    labels: safeSpecs.map((spec) => spec.label),
+    events: safeSpecs.map((spec) => ({ notes: buildStudyStaffNotesForChord(spec) })),
+  };
+}
+
+function buildStudyPitchClassSet(spec) {
+  return new Set((spec?.chordIntervals || []).map((intv) => mod12((spec?.rootPc || 0) + intv)));
+}
+
+function describeSharedStudyNotes(aSpec, bSpec, preferSharps) {
+  const aSet = buildStudyPitchClassSet(aSpec);
+  const bSet = buildStudyPitchClassSet(bSpec);
+  const shared = Array.from(aSet)
+    .filter((pc) => bSet.has(pc))
+    .sort((a, b) => a - b)
+    .map((pc) => pcToName(pc, preferSharps));
+  return {
+    count: shared.length,
+    text: shared.join(" · ") || "ninguna",
+  };
+}
+
+function buildDominantTritoneExplanation(dominantSpec, substituteSpec) {
+  if (!dominantSpec || !substituteSpec) return "";
+  const dominantThird = spellChordNotes({ rootPc: dominantSpec.rootPc, chordIntervals: [4], preferSharps: dominantSpec.preferSharps })[0];
+  const dominantSeventh = spellChordNotes({ rootPc: dominantSpec.rootPc, chordIntervals: [10], preferSharps: dominantSpec.preferSharps })[0];
+  const substituteThird = spellChordNotes({ rootPc: substituteSpec.rootPc, chordIntervals: [4], preferSharps: substituteSpec.preferSharps })[0];
+  const substituteSeventh = spellChordNotes({ rootPc: substituteSpec.rootPc, chordIntervals: [10], preferSharps: substituteSpec.preferSharps })[0];
+  return `${dominantSpec.label} tiene ${dominantThird} como 3ª y ${dominantSeventh} como b7ª; ${substituteSpec.label} tiene ${substituteThird} como 3ª y ${substituteSeventh} como b7ª. El tritono se invierte: la 3ª de uno pasa a ser la b7ª del otro y viceversa.`;
+}
+
+function isStudyDominantChord(plan) {
+  const ints = new Set((plan?.intervals || []).map(mod12));
+  return plan?.quality === "dom" && ints.has(4) && ints.has(10);
+}
+
+function studyChordPlaneLabelFromSpec(spec) {
+  const count = Array.isArray(spec?.chordIntervals) ? spec.chordIntervals.length : 0;
+  if (count >= 4) return "cuatriadas";
+  if (count === 3) return "triadas";
+  if (count === 2) return "diadas";
+  return "acordes";
+}
+
+function buildStudyAnchorId(prefix, ...parts) {
+  const slug = parts
+    .map((part) => String(part || ""))
+    .join("-")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `${prefix}-${slug || "item"}`;
+}
+
+function buildStudySubstitutionGuide({ chordRootPc, chordName, plan, preferSharps, harmonizedScale, backdoorDominantInfo, scaleNotesText, scaleRootPc, scaleName, harmonyMode, scaleIntervals }) {
+  const safeRootPc = mod12(chordRootPc ?? 0);
+  const safePreferSharps = !!preferSharps;
+  const targetSpec = buildStudyChordSpecFromPlan({ rootPc: safeRootPc, preferSharps: safePreferSharps, plan, labelOverride: chordName || "" });
+  const diatonicPreferSharps = computeAutoPreferSharps({ rootPc: scaleRootPc, scaleName });
+  const diatonicTargetSpec = buildStudyChordSpecFromPlan({ rootPc: safeRootPc, preferSharps: diatonicPreferSharps, plan, labelOverride: chordName || "" });
+  const diatonicWithSeventh = targetSpec.chordIntervals.length >= 4;
+  const harmonicPlaneLabel = studyChordPlaneLabelFromSpec(targetSpec);
+  const targetPlaneText = `Plano de comparación aquí: ${harmonicPlaneLabel}, porque el acorde estudiado es ${targetSpec.label}.`;
+  const dominantPlaneText = "Plano funcional aquí: dominantes y acordes de preparación hacia el acorde estudiado, no sustitución directa por misma especie.";
+  const degreeSpec = (degreeIndex) => buildStudyChordSpecFromScaleDegree({
+    tonicPc: scaleRootPc,
+    scaleName,
+    harmonyMode,
+    scaleIntervals,
+    degreeIndex,
+    withSeventh: diatonicWithSeventh,
+    preferSharps: diatonicPreferSharps,
+  });
+  const scaleSummary = harmonizedScale?.tonicName
+    ? `${harmonizedScale.tonicName} ${harmonizedScale.scaleLabel}${scaleNotesText ? ` = ${scaleNotesText}` : ""}`
+    : "Escala activa no disponible.";
+  const currentIsDominant = isStudyDominantChord(plan);
+  const sameRootDominantText = currentIsDominant
+    ? `${targetSpec.label} ya está en plano dominante real.`
+    : `${targetSpec.label} no está en plano dominante real tal como está escrito; para analizar sustituciones de dominante con esta raíz primero se convierte en ${buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "dom", structure: "tetrad", ext7: true }).label}.`;
+  const targetDominantSpec = buildStudyChordSpecFromUi({
+    rootPc: safeRootPc + 7,
+    preferSharps: safePreferSharps,
+    quality: "dom",
+    structure: "tetrad",
+    ext7: true,
+  });
+  const tritoneToTargetSpec = buildStudyChordSpecFromUi({
+    rootPc: safeRootPc + 1,
+    preferSharps: false,
+    quality: "dom",
+    structure: "tetrad",
+    ext7: true,
+  });
+  const iiToTargetSpec = buildStudyChordSpecFromUi({
+    rootPc: safeRootPc + 2,
+    preferSharps: safePreferSharps,
+    quality: "min",
+    structure: "tetrad",
+    ext7: true,
+  });
+  const diminishedToTargetSpec = buildStudyChordSpecFromUi({
+    rootPc: targetDominantSpec.rootPc + 1,
+    preferSharps: true,
+    quality: "dim",
+    structure: "tetrad",
+    ext7: true,
+  });
+  const sameRootDominantSpec = buildStudyChordSpecFromUi({
+    rootPc: safeRootPc,
+    preferSharps: safePreferSharps,
+    quality: "dom",
+    structure: "tetrad",
+    ext7: true,
+  });
+  const sameRootTritoneSpec = buildStudyChordSpecFromUi({
+    rootPc: safeRootPc + 6,
+    preferSharps: false,
+    quality: "dom",
+    structure: "tetrad",
+    ext7: true,
+  });
+  const sameRootDiminishedSpec = buildStudyChordSpecFromUi({
+    rootPc: safeRootPc + 1,
+    preferSharps: true,
+    quality: "dim",
+    structure: "tetrad",
+    ext7: true,
+  });
+  const leadingToneDimToTargetSpec = buildStudyChordSpecFromUi({
+    rootPc: safeRootPc - 1,
+    preferSharps: computeAutoPreferSharps({ rootPc: scaleRootPc, scaleName }),
+    quality: "dim",
+    structure: "tetrad",
+    ext7: true,
+  });
+  const borrowedParallelSpec = plan?.quality === "maj"
+    ? buildStudyChordSpecFromUi({
+        rootPc: safeRootPc,
+        preferSharps: safePreferSharps,
+        quality: "min",
+        structure: targetSpec.chordIntervals.length >= 4 ? "tetrad" : "triad",
+        ext7: targetSpec.chordIntervals.length >= 4,
+      })
+    : plan?.quality === "min"
+      ? buildStudyChordSpecFromUi({
+          rootPc: safeRootPc,
+          preferSharps: safePreferSharps,
+          quality: "maj",
+          structure: targetSpec.chordIntervals.length >= 4 ? "tetrad" : "triad",
+          ext7: targetSpec.chordIntervals.length >= 4,
+        })
+      : null;
+  const relativeSpec = plan?.quality === "maj"
+    ? buildStudyChordSpecFromUi({
+        rootPc: safeRootPc + 9,
+        preferSharps: safePreferSharps,
+        quality: "min",
+        structure: targetSpec.chordIntervals.length >= 4 ? "tetrad" : "triad",
+        ext7: targetSpec.chordIntervals.length >= 4,
+      })
+    : plan?.quality === "min"
+      ? buildStudyChordSpecFromUi({
+          rootPc: safeRootPc + 3,
+          preferSharps: safePreferSharps,
+          quality: "maj",
+          structure: targetSpec.chordIntervals.length >= 4 ? "tetrad" : "triad",
+          ext7: targetSpec.chordIntervals.length >= 4,
+        })
+      : null;
+  const backdoorSpec = buildStudyChordSpecFromUi({
+    rootPc: backdoorDominantInfo?.rootPc ?? (safeRootPc - 2),
+    preferSharps: false,
+    quality: "dom",
+    structure: "tetrad",
+    ext7: true,
+    labelOverride: backdoorDominantInfo?.name || "",
+  });
+  const currentTargetSharedWithRelative = relativeSpec ? describeSharedStudyNotes(diatonicTargetSpec, relativeSpec, diatonicPreferSharps) : null;
+  const currentTargetSharedWithBorrowed = borrowedParallelSpec ? describeSharedStudyNotes(targetSpec, borrowedParallelSpec, safePreferSharps) : null;
+  const targetDominantVsDim = describeSharedStudyNotes(targetDominantSpec, diminishedToTargetSpec, safePreferSharps);
+  const currentDominantVsDim = describeSharedStudyNotes(sameRootDominantSpec, sameRootDiminishedSpec, safePreferSharps);
+  const extensionBaseSpec = plan?.quality === "min"
+    ? buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "min", structure: "tetrad", ext7: true })
+    : plan?.quality === "dom"
+      ? buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "dom", structure: "tetrad", ext7: true })
+      : buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "maj", structure: "tetrad", ext7: true });
+  const extensionAltA = plan?.quality === "min"
+    ? buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "min", structure: "chord", ext7: true, ext9: true })
+    : plan?.quality === "dom"
+      ? buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "dom", structure: "chord", ext7: true, ext9: true })
+      : buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "maj", structure: "chord", ext7: true, ext9: true });
+  const extensionAltB = plan?.quality === "min"
+    ? buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "min", structure: "tetrad", ext6: true })
+    : plan?.quality === "dom"
+      ? buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "dom", suspension: "sus4", structure: "tetrad", ext7: true })
+      : buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "maj", structure: "tetrad", ext6: true });
+  const sus2Spec = buildStudyChordSpecFromUi({
+    rootPc: safeRootPc,
+    preferSharps: safePreferSharps,
+    quality: "maj",
+    suspension: "sus2",
+    structure: "triad",
+  });
+  const sus4Spec = buildStudyChordSpecFromUi({
+    rootPc: safeRootPc,
+    preferSharps: safePreferSharps,
+    quality: "maj",
+    suspension: "sus4",
+    structure: "triad",
+  });
+  const upperStructureBase = buildStudyChordSpecFromUi({
+    rootPc: targetDominantSpec.rootPc,
+    preferSharps: targetDominantSpec.preferSharps,
+    quality: "dom",
+    structure: "tetrad",
+    ext7: true,
+  });
+  const upperStructureTriadRoot = mod12(targetDominantSpec.rootPc + 2);
+  const upperStructureTriadName = `${pcToName(upperStructureTriadRoot, false)} mayor`;
+  const upperStructureCombined = buildStudyChordSpecCustom({
+    rootPc: targetDominantSpec.rootPc,
+    preferSharps: false,
+    chordIntervals: [0, 4, 7, 10, 2, 6, 9],
+    label: `${upperStructureTriadName}/${targetDominantSpec.label}`,
+  });
+  const pedalName = pcToName(safeRootPc, safePreferSharps);
+  const pedalOptions = [1, 3, 4]
+    .map((degreeIndex) => buildStudyChordSpecFromDegree(harmonizedScale?.degrees?.[degreeIndex], safePreferSharps))
+    .filter(Boolean)
+    .map((spec) => `${spec.label}/${pedalName}`);
+  const coltraneCycle = [
+    buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "maj", structure: "tetrad", ext7: true }),
+    buildStudyChordSpecFromUi({ rootPc: safeRootPc + 3, preferSharps: false, quality: "dom", structure: "tetrad", ext7: true }),
+    buildStudyChordSpecFromUi({ rootPc: safeRootPc + 8, preferSharps: false, quality: "maj", structure: "tetrad", ext7: true }),
+    buildStudyChordSpecFromUi({ rootPc: safeRootPc + 11, preferSharps: false, quality: "dom", structure: "tetrad", ext7: true }),
+    buildStudyChordSpecFromUi({ rootPc: safeRootPc + 4, preferSharps: safePreferSharps, quality: "maj", structure: "tetrad", ext7: true }),
+  ];
+
+  const diatonicItems = [
+    {
+      title: "Función de tónica",
+      definition: "Sustituye un acorde por otro de la misma familia de reposo dentro de la tonalidad activa.",
+      appliesWhen: "Aplica cuando quieres mantener sensación de llegada o estabilidad sin repetir exactamente el mismo acorde.",
+      derivation: (() => {
+        const specs = [0, 2, 5]
+          .map((degreeIndex) => degreeSpec(degreeIndex))
+          .filter(Boolean);
+        const familyText = specs.map((spec) => `${spec.degreeLabel}: ${spec.label}`).join(" · ");
+        const comparisons = specs
+          .filter((spec) => spec.label !== diatonicTargetSpec.label)
+          .map((spec) => {
+            const shared = describeSharedStudyNotes(diatonicTargetSpec, spec, diatonicPreferSharps);
+            return `${spec.label} comparte ${shared.count} notas con ${diatonicTargetSpec.label}: ${shared.text}.`;
+          });
+        return [
+          `Escala activa: ${scaleSummary}.`,
+          targetPlaneText,
+          `Familia de tónica: ${familyText || "no disponible"}.`,
+          ...comparisons,
+        ];
+      })(),
+      examples: [
+        "Si el acorde estudiado es la tónica, los candidatos naturales suelen ser III y VI.",
+        "III suele sonar más abierto, etéreo o incompleto porque no contiene la tónica como bajo o centro.",
+        "VI suele sonar más melancólico porque es el relativo menor natural de la tonalidad.",
+      ],
+      staffGroups: [
+        buildStudyStaffGroup("Pentagrama de la familia tónica", [
+          degreeSpec(0),
+          degreeSpec(2),
+          degreeSpec(5),
+        ], "Orden: I · III · VI"),
+      ],
+    },
+    {
+      title: "Función de subdominante",
+      definition: "Agrupa acordes que generan alejamiento de la tónica y preparan el camino hacia la dominante.",
+      appliesWhen: "Úsala cuando quieras crear progresión armónica. En tonalidad mayor, IIm7 y IVmaj7 suelen funcionar muy bien como sustitutos entre sí.",
+      derivation: (() => {
+        const specs = [1, 3]
+          .map((degreeIndex) => degreeSpec(degreeIndex))
+          .filter(Boolean);
+        const familyText = specs.map((spec) => `${spec.degreeLabel}: ${spec.label}`).join(" · ");
+        const internalComparisons = specs.length >= 2
+          ? (() => {
+              const shared = describeSharedStudyNotes(specs[0], specs[1], diatonicPreferSharps);
+              return `${specs[0].label} y ${specs[1].label} comparten ${shared.count} notas: ${shared.text}.`;
+            })()
+          : "No hay suficientes acordes para comparar la familia subdominante.";
+        return [
+          `Escala activa: ${scaleSummary}.`,
+          `Plano de comparación aquí: sustitución interna dentro de la familia subdominante, no sustitución directa de ${diatonicTargetSpec.label}.`,
+          `Familia de subdominante: ${familyText || "no disponible"}.`,
+          internalComparisons,
+          `Relación con ${diatonicTargetSpec.label}: estos acordes no se presentan aquí como sustitutos de la tónica, sino como acordes de preparación antes de la dominante.`,
+        ];
+      })(),
+      examples: [
+        `En ${harmonizedScale?.tonicName || pcToName(scaleRootPc, diatonicPreferSharps)} mayor puedes usar ${degreeSpec(3)?.label || "IV"} o ${degreeSpec(1)?.label || "II"} antes de ${degreeSpec(4)?.label || "V"} para preparar la resolución.`,
+        `${degreeSpec(3)?.label || "IV"} suele sonar más amplio y pastoral; ${degreeSpec(1)?.label || "II"} más directo y más cercano al lenguaje II-V-I.`,
+      ],
+      staffGroups: [
+        buildStudyStaffGroup("Pentagrama de la familia subdominante", [
+          degreeSpec(1),
+          degreeSpec(3),
+        ], "Orden: II · IV"),
+      ],
+    },
+    {
+      title: "Función de dominante",
+      definition: "Reúne acordes que contienen o insinúan tensión de resolución, especialmente alrededor del tritono tonal.",
+      appliesWhen: "Sirve cuando quieres empujar hacia una llegada sin usar siempre el mismo V.",
+      derivation: (() => {
+        const specs = [4, 6]
+          .map((degreeIndex) => degreeSpec(degreeIndex))
+          .filter(Boolean);
+        const familyText = specs.map((spec) => `${spec.degreeLabel}: ${spec.label}`).join(" · ");
+        const internalComparisons = specs.length >= 2
+          ? (() => {
+              const shared = describeSharedStudyNotes(specs[0], specs[1], diatonicPreferSharps);
+              return `${specs[1].label} comparte ${shared.count} notas con ${specs[0].label}: ${shared.text}. Por eso puede funcionar como un V7 sin tónica.`;
+            })()
+          : "No hay suficientes acordes para comparar la familia dominante.";
+        return [
+          `Escala activa: ${scaleSummary}.`,
+          `Plano de comparación aquí: ${harmonicPlaneLabel}.`,
+          `Familia de dominante: ${familyText || "no disponible"}.`,
+          ...specs.map((spec) => {
+            const shared = describeSharedStudyNotes(diatonicTargetSpec, spec, diatonicPreferSharps);
+            return `${spec.label} comparte ${shared.count} notas con ${diatonicTargetSpec.label}: ${shared.text}.`;
+          }),
+          internalComparisons,
+        ];
+      })(),
+      examples: [
+        "En entorno tonal, el VIIº o m7(b5) puede funcionar como un V7 sin tónica, con una tensión más elegante o menos pesada que el dominante completo.",
+      ],
+      staffGroups: [
+        buildStudyStaffGroup("Pentagrama de la familia dominante", [
+          degreeSpec(4),
+          degreeSpec(6),
+        ], "Orden: V · VIIº"),
+      ],
+    },
+    ...(relativeSpec ? [{
+      title: plan?.quality === "maj" ? "Relativo menor" : "Relativo mayor",
+      definition: "Intercambia un acorde con su relativo porque comparten gran parte del material sonoro. Aunque es una sustitución diatónica, suele estudiarse aparte por su importancia histórica y por lo mucho que se usa para cambiar el ánimo sin mover la tonalidad.",
+      appliesWhen: "Es especialmente útil para variaciones sutiles. Con cuatriadas, la continuidad sonora es muy alta porque el bloque común suele ocupar tres de las cuatro notas.",
+      derivation: [
+        `Acorde base: ${diatonicTargetSpec.label}.`,
+        targetPlaneText,
+        `Relativo: ${relativeSpec.label}.`,
+        `Notas compartidas: ${relativeSpec.label} y ${diatonicTargetSpec.label} comparten ${currentTargetSharedWithRelative?.count || 0} notas: ${currentTargetSharedWithRelative?.text || "ninguna"}.`,
+      ],
+      examples: [
+        "En una reharmonización suave, cambiar al relativo suele dar continuidad sin sonar a modulación.",
+        plan?.quality === "maj"
+          ? `${relativeSpec.label} añade un peso más melancólico que ${diatonicTargetSpec.label}.`
+          : `${relativeSpec.label} aporta una lectura más luminosa y abierta que ${diatonicTargetSpec.label}.`,
+      ],
+      staffGroups: [
+        buildStudyStaffGroup("Pentagrama del relativo", [targetSpec, relativeSpec], `Orden: ${targetSpec.label} · ${relativeSpec.label}`),
+      ],
+    }] : []),
+  ];
+
+  const chromaticItems = [
+    {
+      title: "Sustitución tritonal",
+      definition: "Sustituye un dominante 7 por otro dominante 7 situado a un tritono. Funciona porque ambos comparten el mismo tritono tonal: la 3ª de uno pasa a ser la b7ª del otro y viceversa.",
+      appliesWhen: "Solo aplica a acordes con función dominante real. Un maj7 no es dominante, porque no tiene 7ª menor.",
+      derivation: [
+        dominantPlaneText,
+        `Si el objetivo es llegar a ${targetSpec.label}, su dominante natural es ${targetDominantSpec.label}.`,
+        `El acorde a tritono de ${targetDominantSpec.label} es ${tritoneToTargetSpec.label}.`,
+        buildDominantTritoneExplanation(targetDominantSpec, tritoneToTargetSpec),
+        currentIsDominant
+          ? `${targetSpec.label} ya es dominante, así que su sustituto tritonal directo es ${sameRootTritoneSpec.label}.`
+          : `${targetSpec.label} no actúa como dominante tal como está escrito. Si quisieras usar esa raíz como dominante, habría que convertirlo en ${sameRootDominantSpec.label}; su sustituto tritonal sería ${sameRootTritoneSpec.label}.`,
+      ],
+      examples: [
+        `${targetDominantSpec.label} \u2192 ${targetSpec.label}: resolución tradicional por salto de quinta.`,
+        `${tritoneToTargetSpec.label} \u2192 ${targetSpec.label}: resolución cromática por semitono descendente en el bajo, con un color más suave y jazzístico.`,
+      ],
+      staffGroups: [
+        buildStudyStaffGroup("Dominante real y sustituto tritonal hacia el acorde estudiado", [targetDominantSpec, tritoneToTargetSpec, targetSpec], `Orden: ${targetDominantSpec.label} · ${tritoneToTargetSpec.label} · ${targetSpec.label}`),
+        buildStudyStaffGroup("Si la misma raíz actuara como dominante", [sameRootDominantSpec, sameRootTritoneSpec], `Orden: ${sameRootDominantSpec.label} · ${sameRootTritoneSpec.label}`),
+      ],
+    },
+    {
+      title: "Dominante por disminuido",
+      definition: "Sustituye o comprime un dominante mediante un acorde disminuido séptima cuya raíz está medio tono por encima de la raíz del dominante original.",
+      appliesWhen: "Se usa cuando quieres mantener la tensión del dominante añadiendo un color más inestable, simétrico y con una conducción de voces más cerrada.",
+      derivation: [
+        dominantPlaneText,
+        `Si ${targetSpec.label} es el objetivo, su dominante es ${targetDominantSpec.label} (${targetDominantSpec.notes.join(" · ")}).`,
+        `Un semitono por encima de la raíz del dominante aparece ${diminishedToTargetSpec.label} (${diminishedToTargetSpec.notes.join(" · ")}).`,
+        `${diminishedToTargetSpec.label} comparte ${targetDominantVsDim.count} notas con ${targetDominantSpec.label}: ${targetDominantVsDim.text}. Son precisamente las notas que concentran la tensión y su resolución.`,
+        currentIsDominant
+          ? `Como ${targetSpec.label} ya es dominante, su disminuido asociado sería ${sameRootDiminishedSpec.label}.`
+          : `Si quisieras usar la raíz de ${targetSpec.label} como dominante, pasarías primero a ${sameRootDominantSpec.label} y después a ${sameRootDiminishedSpec.label}.`,
+      ],
+      examples: [
+        `${targetDominantSpec.label} \u2192 ${targetSpec.label} puede enriquecerse como ${diminishedToTargetSpec.label} \u2192 ${targetSpec.label}.`,
+        `Lectura: crea un movimiento cromático en el bajo y una llegada muy compacta hacia ${targetSpec.label}.`,
+      ],
+      staffGroups: [
+        buildStudyStaffGroup("Dominante y disminuido asociado hacia el acorde estudiado", [targetDominantSpec, diminishedToTargetSpec, targetSpec], `Orden: ${targetDominantSpec.label} · ${diminishedToTargetSpec.label} · ${targetSpec.label}`),
+        buildStudyStaffGroup("Conversión de la raíz actual a dominante + disminuido", [sameRootDominantSpec, sameRootDiminishedSpec], `Comparten ${currentDominantVsDim.count} notas: ${currentDominantVsDim.text}`),
+      ],
+    },
+    {
+      title: "Interpolación II-V",
+      definition: "No sustituye el destino: inserta su ii antes del V para preparar mejor la llegada.",
+      appliesWhen: "Se usa cuando quieres una preparación más clara de jazz o pop sofisticado antes de resolver.",
+      derivation: [
+        dominantPlaneText,
+        `Si ${targetSpec.label} es el acorde objetivo, su dominante es ${targetDominantSpec.label}.`,
+        `El ii correspondiente es ${iiToTargetSpec.label}.`,
+        `La cadena queda ${iiToTargetSpec.label} - ${targetDominantSpec.label} \u2192 ${targetSpec.label}.`,
+        `También se llama dualización, porque conviertes un evento armónico de un solo acorde (${targetDominantSpec.label}) en un evento de dos (${iiToTargetSpec.label} - ${targetDominantSpec.label}).`,
+      ],
+      examples: [
+        "Si el acorde actual ya fuera dominante, la interpolación consistiría en anteponerle su ii.",
+      ],
+      staffGroups: [
+        buildStudyStaffGroup("Cadena II-V-I hacia el acorde estudiado", [iiToTargetSpec, targetDominantSpec, targetSpec], `Orden: ${iiToTargetSpec.label} · ${targetDominantSpec.label} · ${targetSpec.label}`),
+      ],
+    },
+  ];
+
+  const borrowedItems = [
+    ...(borrowedParallelSpec ? [{
+      title: "Intercambio modal",
+      definition: "Toma el mismo grado desde el modo paralelo para cambiar el color sin mover la raíz.",
+      appliesWhen: "Muy útil cuando quieres oscurecer o aclarar un acorde manteniendo su posición estructural.",
+      derivation: [
+        `Partimos de ${targetSpec.label}.`,
+        targetPlaneText,
+        `El préstamo paralelo más directo es ${borrowedParallelSpec.label}.`,
+        `${borrowedParallelSpec.label} comparte ${currentTargetSharedWithBorrowed?.count || 0} notas con ${targetSpec.label}: ${currentTargetSharedWithBorrowed?.text || "ninguna"}.`,
+        "El contraste aparece sobre todo en la 3ª y la 7ª: al cambiarlas, cambias la especie del acorde sin mover la raíz.",
+        "En la práctica es muy típico usarlo sobre I, IV o VI en mayor, o sobre i y iv en menor.",
+      ],
+      examples: [
+        `Sustitución directa: ${targetSpec.label} \u2194 ${borrowedParallelSpec.label}.`,
+        `Lectura: el cambio funciona porque mantiene el eje del acorde, pero altera las notas que definen su carácter mayor o menor.`,
+      ],
+      staffGroups: [
+        buildStudyStaffGroup("Acorde original y préstamo modal paralelo", [targetSpec, borrowedParallelSpec], `Orden: ${targetSpec.label} · ${borrowedParallelSpec.label}`),
+      ],
+    }] : []),
+    {
+      title: "Dominante secundario",
+      definition: "Convierte el acorde objetivo en una llegada temporal preparada por su propio V7. Si el objetivo es la tónica principal de la tonalidad, ese V7 se entiende como dominante primario; si el objetivo es otro grado, entonces sí hablamos propiamente de dominante secundario.",
+      appliesWhen: "Aplica cuando quieres tonicizar momentáneamente el acorde estudiado aunque no cambies de tonalidad global.",
+      derivation: [
+        dominantPlaneText,
+        `Aquí el acorde objetivo es ${targetSpec.label}.`,
+        `Su dominante secundario es ${targetDominantSpec.label}.`,
+        `La lectura funcional es V7/${targetSpec.label} \u2192 ${targetSpec.label}.`,
+        `Si ${targetSpec.label} es la tónica principal del tono, ${targetDominantSpec.label} se describe con más rigor como dominante primario.`,
+        sameRootDominantText,
+      ],
+      examples: [
+        `${targetDominantSpec.label} \u2192 ${targetSpec.label}.`,
+        currentIsDominant ? `${targetSpec.label} ya es un dominante. En ese caso la pregunta útil es: "¿de qué acorde es V7?"` : "",
+      ].filter(Boolean),
+      staffGroups: [
+        buildStudyStaffGroup("Dominante secundario hacia el acorde estudiado", [targetDominantSpec, targetSpec], `Orden: ${targetDominantSpec.label} · ${targetSpec.label}`),
+      ],
+    },
+    {
+      title: "Séptima Sensible vii°/x",
+      definition: "Usa el disminuido sensible del acorde objetivo en lugar de su dominante completo.",
+      appliesWhen: "Sirve cuando quieres una preparación más compacta o más clásica que el V7 completo.",
+      derivation: [
+        dominantPlaneText,
+        `Tomando ${targetSpec.label} como objetivo, su sensible armónica genera ${leadingToneDimToTargetSpec.label}.`,
+        `${leadingToneDimToTargetSpec.label} resuelve por semitono hacia notas estructurales de ${targetSpec.label}.`,
+      ],
+      examples: [
+        `${leadingToneDimToTargetSpec.label} \u2192 ${targetSpec.label}.`,
+      ],
+      staffGroups: [
+        buildStudyStaffGroup("Sensible disminuida hacia el acorde estudiado", [leadingToneDimToTargetSpec, targetSpec], `Orden: ${leadingToneDimToTargetSpec.label} · ${targetSpec.label}`),
+      ],
+    },
+    {
+      title: "Backdoor dominant",
+      definition: "Utiliza el acorde de séptima dominante construido sobre el séptimo grado bemol de la tonalidad como un dominante modal alternativo.",
+      appliesWhen: "Funciona especialmente bien para resolver a un acorde maj7. Aporta un color soul, gospel o de jazz clásico mucho más fresco que el dominante tradicional.",
+      derivation: [
+        dominantPlaneText,
+        `Acorde objetivo: ${targetSpec.label}.`,
+        `Raíz del backdoor: ${pcToName(mod12(targetSpec.rootPc - 2), false)} (un tono entero por debajo de ${pcToName(targetSpec.rootPc, targetSpec.preferSharps)}).`,
+        `Acorde resultante: ${backdoorSpec.label} (${backdoorSpec.notes.join(" · ")}).`,
+        `No se basa en el tritono del V7 tradicional, sino en una resolución modal muy usada.`,
+        `Lógica sonora: notas como ${backdoorSpec.notes[3] || "b7"} y ${backdoorSpec.notes[2] || "5"} del ${backdoorSpec.label} resuelven con mucha suavidad hacia notas estables de ${targetSpec.label}.`,
+      ],
+      examples: [
+        `${backdoorSpec.label} \u2192 ${targetSpec.label}.`,
+        `${buildStudyChordSpecFromUi({ rootPc: backdoorSpec.rootPc + 7, preferSharps: false, quality: "min", structure: "tetrad", ext7: true }).label} - ${backdoorSpec.label} \u2192 ${targetSpec.label}.`,
+        "Lectura: se siente como una llegada inesperada pero muy satisfactoria.",
+      ],
+      staffGroups: [
+        buildStudyStaffGroup("Comparación entre V7 normal y backdoor dominant", [targetDominantSpec, backdoorSpec, targetSpec], `Orden: ${targetDominantSpec.label} · ${backdoorSpec.label} · ${targetSpec.label}`),
+        buildStudyStaffGroup("Cadena backdoor reforzada", [
+          buildStudyChordSpecFromUi({ rootPc: backdoorSpec.rootPc + 7, preferSharps: false, quality: "min", structure: "tetrad", ext7: true }),
+          backdoorSpec,
+          targetSpec,
+        ], `Orden: ${buildStudyChordSpecFromUi({ rootPc: backdoorSpec.rootPc + 7, preferSharps: false, quality: "min", structure: "tetrad", ext7: true }).label} · ${backdoorSpec.label} · ${targetSpec.label}`),
+      ],
+    },
+  ];
+
+  const colorItems = [
+    {
+      title: "Sustituciones por calidad y extensiones",
+      definition: "Mantienen la raíz y la función básica, pero modifican la densidad y el brillo del acorde añadiendo o alterando notas de color como 6, 9, #11 o 13.",
+      appliesWhen: "Se usa cuando quieres embellecer la armonía sin alterar el análisis funcional. Es una herramienta central de arreglo y orquestación.",
+      derivation: plan?.quality === "maj" ? [
+        "Plano estructural: misma raíz y misma función.",
+        `Base: ${extensionBaseSpec.label} (${extensionBaseSpec.notes.join(" · ")}).`,
+        `Variantes:`,
+        `${extensionAltB.label} (${extensionAltB.notes.join(" · ")}): sustituye la 7ª por la 6ª y suele sonar más estable, más clásico o más cercano al swing.`,
+        `${extensionAltA.label} (${extensionAltA.notes.join(" · ")}): añade la 9ª y abre más el acorde.`,
+        `${buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "maj", structure: "chord", ext7: true, ext9: true, ext13: true }).label} (${buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "maj", structure: "chord", ext7: true, ext9: true, ext13: true }).notes.join(" · ")}): máxima densidad de color mayor en esta familia.`,
+      ] : [
+        `Plano aquí: mismo acorde, misma raíz y misma función básica; cambian solo las tensiones visibles alrededor de ${targetSpec.label}.`,
+        `Base de referencia sobre esta raíz: ${extensionBaseSpec.label}.`,
+        `Variantes de color cercanas: ${extensionAltA.label} y ${extensionAltB.label}.`,
+        "No sustituyen la función por otra; reharmonizan el mismo punto con más o menos tensión.",
+      ],
+      examples: plan?.quality === "maj" ? [
+        `${extensionBaseSpec.label} \u2192 ${extensionAltA.label} \u2192 ${extensionAltB.label}.`,
+        "Lectura: no hay movimiento armónico real, pero sí un movimiento de interés. El acorde respira y evoluciona mientras la melodía se desarrolla.",
+      ] : [
+        `${extensionBaseSpec.label} \u2192 ${extensionAltA.label} \u2192 ${extensionAltB.label}.`,
+      ],
+      staffGroups: [
+        buildStudyStaffGroup(
+          "Misma raíz, distinto color armónico",
+          plan?.quality === "maj"
+            ? [
+                extensionBaseSpec,
+                extensionAltA,
+                extensionAltB,
+                buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "maj", structure: "chord", ext7: true, ext9: true, ext13: true }),
+              ]
+            : [extensionBaseSpec, extensionAltA, extensionAltB],
+          plan?.quality === "maj"
+            ? `Orden: ${extensionBaseSpec.label} · ${extensionAltA.label} · ${extensionAltB.label} · ${buildStudyChordSpecFromUi({ rootPc: safeRootPc, preferSharps: safePreferSharps, quality: "maj", structure: "chord", ext7: true, ext9: true, ext13: true }).label}`
+            : `Orden: ${extensionBaseSpec.label} · ${extensionAltA.label} · ${extensionAltB.label}`
+        ),
+      ],
+    },
+    {
+      title: "Acordes de suspensión",
+      definition: "Sustituyen la 3ª por 2ª o 4ª para crear una tensión que pide resolver.",
+      appliesWhen: "Funcionan bien como color flotante antes de volver a la 3ª o antes de resolver al siguiente acorde.",
+      derivation: [
+        "Plano aquí: misma raíz y misma función aproximada; la sustitución afecta a la 3ª del acorde.",
+        `Sobre la raíz de ${targetSpec.label}, los modelos básicos son ${sus2Spec.label} y ${sus4Spec.label}.`,
+        "La idea no es cambiar de función, sino retrasar la definición mayor o menor del acorde.",
+      ],
+      examples: [
+        `${sus4Spec.label} suele resolver a ${targetSpec.label} o a su versión dominante.`,
+      ],
+      staffGroups: [
+        buildStudyStaffGroup("Suspensiones básicas sobre la misma raíz", [sus2Spec, sus4Spec, targetSpec], `Orden: ${sus2Spec.label} · ${sus4Spec.label} · ${targetSpec.label}`),
+      ],
+    },
+    {
+      title: "Poliacordes / Upper Structures",
+      definition: "Superponen una tríada superior sobre un dominante para generar tensiones complejas sin pensar nota por nota.",
+      appliesWhen: "Se usan sobre dominantes cuando quieres tensiones 9, #11, 13 y derivados con una digitación mental simple.",
+      derivation: [
+        dominantPlaneText,
+        `Si el objetivo es ${targetSpec.label}, su dominante es ${upperStructureBase.label}.`,
+        `Una tríada de ${upperStructureTriadName} sobre ${upperStructureBase.label} produce 9, #11 y 13 respecto al bajo.`,
+      ],
+      examples: [
+        `${upperStructureTriadName}/${upperStructureBase.label} como forma rápida de pensar un dominante alterado por color.`,
+      ],
+      staffGroups: [
+        buildStudyStaffGroup("Dominante base y upper structure combinado", [upperStructureBase, upperStructureCombined], `Orden: ${upperStructureBase.label} · ${upperStructureCombined.label}`),
+      ],
+    },
+  ];
+
+  return [
+    {
+      title: "1. Sustituciones diatónicas",
+      caption: "Se apoyan en la tonalidad activa y en la cantidad de notas comunes entre acordes de la misma escala.",
+      items: diatonicItems,
+    },
+    {
+      title: "2. Sustituciones cromáticas y jazz",
+      caption: "Añaden acordes fuera de la escala para aumentar la tensión o clarificar la resolución.",
+      items: chromaticItems,
+    },
+    {
+      title: "3. Sustituciones por préstamo",
+      caption: "Reinterpretan el acorde estudiado como objetivo temporal o toman color desde modos paralelos.",
+      items: borrowedItems.filter((item) => item),
+    },
+    {
+      title: "4. Estructura y color",
+      caption: "No siempre cambias la función: a veces solo cambias la forma en que el acorde se presenta.",
+      items: colorItems,
+    },
+    {
+      title: "5. Avanzadas y extras",
+      caption: "Recursos más abiertos para estudiar reharmonizaciones largas o con un color muy marcado.",
+      items: [
+        {
+          title: "Nota pedal",
+          definition: "Mantiene una nota fija en el bajo mientras cambian los acordes superiores.",
+          appliesWhen: "Es útil cuando quieres sensación de eje, drone o tensión estática sin perder movimiento arriba.",
+          derivation: [
+            "Plano aquí: la sustitución no se basa en notas comunes ni en función equivalente, sino en mantener fijo el bajo.",
+            `Aquí la nota pedal propuesta es ${pedalName}.`,
+            pedalOptions.length
+              ? `Opciones diatónicas con esa pedal: ${pedalOptions.join(" · ")}.`
+              : "No hay suficientes acordes diatónicos claros para mostrar ejemplos de pedal en esta escala.",
+          ],
+          examples: [
+            "La nota pedal no sustituye por identidad de notas comunes, sino por permanencia del bajo.",
+          ],
+          staffGroups: [],
+        },
+        {
+          title: "Cambios Coltrane",
+          definition: "Dividen la octava por terceras mayores y encadenan dominantes para mover el centro tonal muy rápido.",
+          appliesWhen: "Es un recurso avanzado: deja de ser una sustitución puntual y pasa a ser una reharmonización completa.",
+          derivation: [
+            "Plano aquí: reharmonización de progresión completa, no equivalencia funcional de un único acorde.",
+            `Tomando ${targetSpec.label} como punto de partida, una cadena posible es ${coltraneCycle.map((spec) => spec.label).join(" \u2192 ")}.`,
+            "Úsalo cuando quieras densidad armónica alta y movimiento continuo entre centros lejanos.",
+          ],
+          examples: [
+            "No suele sustituir un solo acorde aislado, sino rediseñar toda la progresión.",
+          ],
+          staffGroups: [
+            buildStudyStaffGroup("Esquema simplificado de una cadena tipo Coltrane", coltraneCycle, `Orden: ${coltraneCycle.map((spec) => spec.label).join(" · ")}`),
+          ],
+        },
+      ],
+    },
+  ].filter((section) => section.items.length);
 }
 
 // ============================================================================
@@ -8626,6 +9463,8 @@ export default function FretboardScalesPage() {
   // --------------------------------------------------------------------------
 
   function StudyPanel() {
+    const [studySubstitutionSectionIdx, setStudySubstitutionSectionIdx] = useState(0);
+    const substitutionTabLabels = ["Diatónicas", "Cromáticas y jazz", "Por préstamo", "Estructura y color", "Avanzadas y extras"];
     const d = studyData;
     const rules = explainStudyRules(d?.plan);
     const naming = buildChordNamingExplanation(d?.plan);
@@ -8653,6 +9492,30 @@ export default function FretboardScalesPage() {
     });
     const dominant = buildDominantInfo(d?.rootPc ?? chordRootPc, d?.preferSharps ?? chordPreferSharps);
     const backdoorDominant = buildBackdoorDominantInfo(d?.rootPc ?? chordRootPc, d?.preferSharps ?? chordPreferSharps);
+    const substitutionKeySignature = resolveKeySignatureForScale({ rootPc, scaleName }) || { type: null, count: 0 };
+    const substitutionSections = buildStudySubstitutionGuide({
+      chordRootPc: d?.rootPc ?? chordRootPc,
+      chordName: d?.chordName,
+      plan: d?.plan,
+      preferSharps: d?.preferSharps ?? chordPreferSharps,
+      harmonizedScale,
+      backdoorDominantInfo: backdoorDominant,
+      scaleNotesText: spelledScaleNotes.join(" · "),
+      scaleRootPc: rootPc,
+      scaleName,
+      harmonyMode,
+      scaleIntervals,
+    });
+    useEffect(() => {
+      setStudySubstitutionSectionIdx(0);
+    }, [studyTarget, d?.title, d?.chordName]);
+    useEffect(() => {
+      setStudySubstitutionSectionIdx((prev) => {
+        const maxIdx = Math.max(0, substitutionSections.length - 1);
+        return Math.min(prev, maxIdx);
+      });
+    }, [substitutionSections.length]);
+    const activeSubstitutionSection = substitutionSections[studySubstitutionSectionIdx] || null;
     const studyStaffEvents = d?.voicing?.notes?.length
       ? [{ notes: [...d.voicing.notes].sort((a, b) => pitchAt(a.sIdx, a.fret) - pitchAt(b.sIdx, b.fret)).map((n) => pitchAt(n.sIdx, n.fret)) }]
       : [];
@@ -8662,6 +9525,73 @@ export default function FretboardScalesPage() {
           .map((n) => `${n.sIdx + 1}ª/${n.fret}`)
           .join(" · ")
       : "";
+    const studyBulletGlyph = (level) => {
+      if (level === 0) return "◦";
+      if (level === 1) return "▪";
+      return "–";
+    };
+    const renderStudyLineWithBoldPrefix = (text) => {
+      const raw = String(text || "").trim();
+      if (!raw) return null;
+      const colonIdx = raw.indexOf(":");
+      if (colonIdx <= 0) return <span className="text-justify">{raw}</span>;
+      const label = raw.slice(0, colonIdx + 1);
+      const rest = raw.slice(colonIdx + 1).trim();
+      return (
+        <span className="text-justify">
+          <b>{label}</b>
+          {rest ? ` ${rest}` : ""}
+        </span>
+      );
+    };
+    const renderStudyStructuredLines = (lines, level = 0) => {
+      const safeLines = Array.isArray(lines) ? lines.map((line) => String(line || "").trim()).filter(Boolean) : [];
+      if (!safeLines.length) return null;
+      const items = [];
+      let idx = 0;
+      while (idx < safeLines.length) {
+        const line = safeLines[idx];
+        const isHeading = /:\s*$/.test(line);
+        if (isHeading) {
+          const children = [];
+          idx += 1;
+          while (idx < safeLines.length && !/:\s*$/.test(safeLines[idx])) {
+            children.push(safeLines[idx]);
+            idx += 1;
+          }
+          items.push(
+            <div key={`${level}-${idx}-${line}`} className="space-y-2">
+              <div className="flex items-start gap-2">
+                <span className="mt-[2px] text-slate-400">{studyBulletGlyph(level)}</span>
+                <span className="text-justify"><b>{line}</b></span>
+              </div>
+              {children.length ? <div className="pl-5">{renderStudyStructuredLines(children, level + 1)}</div> : null}
+            </div>
+          );
+          continue;
+        }
+        items.push(
+          <div key={`${level}-${idx}-${line}`} className="flex items-start gap-2">
+            <span className="mt-[2px] text-slate-400">{studyBulletGlyph(level)}</span>
+            {renderStudyLineWithBoldPrefix(line)}
+          </div>
+        );
+        idx += 1;
+      }
+      return <div className="space-y-2">{items}</div>;
+    };
+    const renderStudyOuterBlock = (label, content) => {
+      if (!content || (Array.isArray(content) && !content.length)) return null;
+      return (
+        <div className="space-y-2.5">
+          <div className="flex items-start gap-2">
+            <span className="mt-[2px] text-slate-500">●</span>
+            <span className="text-justify"><b>{label}:</b>{Array.isArray(content) ? "" : ` ${content}`}</span>
+          </div>
+          {Array.isArray(content) ? <div className="pl-5">{renderStudyStructuredLines(content, 0)}</div> : null}
+        </div>
+      );
+    };
     return (
       <section className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -8677,7 +9607,7 @@ export default function FretboardScalesPage() {
         {studyOpen ? (
           <>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
               <div className="text-xs font-semibold text-slate-700">Identidad</div>
               <div className="mt-2 space-y-1 text-xs text-slate-600">
                 <div><b>Nombre:</b> {d?.chordName}</div>
@@ -8686,7 +9616,7 @@ export default function FretboardScalesPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
               <div className="text-xs font-semibold text-slate-700">Dominantes relacionados</div>
               <div className="mt-2 space-y-3 text-xs text-slate-600">
                 <div>
@@ -8704,14 +9634,14 @@ export default function FretboardScalesPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
               <div className="text-xs font-semibold text-slate-700">Por qué se nombra así</div>
               <div className="mt-2 space-y-1 text-xs text-slate-600">
                 {naming.length ? naming.map((r, i) => <div key={i}>• {r}</div>) : <div>• Sin explicación adicional.</div>}
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
               <div className="text-xs font-semibold text-slate-700">Construcción</div>
               <div className="mt-2 space-y-1 text-xs text-slate-600">
                 <div><b>Fórmula:</b> {d?.intervals?.join(" · ") || "—"}</div>
@@ -8721,7 +9651,7 @@ export default function FretboardScalesPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
               <div className="text-xs font-semibold text-slate-700">Voicing actual</div>
               <div className="mt-2 space-y-1 text-xs text-slate-600">
                 <div><b>Tipo:</b> {studyVoicingFormLabel(d?.voicing, d?.plan?.form)}</div>
@@ -8731,7 +9661,7 @@ export default function FretboardScalesPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
               <div className="text-xs font-semibold text-slate-700">{isQuartalStudy ? "Estructura cuartal real" : "Selección vs voicing real"}</div>
               {isQuartalStudy ? (
                 <div className="mt-2 space-y-1 text-xs text-slate-600">
@@ -8757,7 +9687,7 @@ export default function FretboardScalesPage() {
               )}
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
               <div className="text-xs font-semibold text-slate-700">Tensiones según escala</div>
               <div className="mt-2 space-y-1 text-xs text-slate-600">
                 <div><b>Escala activa:</b> {pcToName(rootPc, preferSharps)} {scaleName}</div>
@@ -8766,7 +9696,7 @@ export default function FretboardScalesPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
               <div className="text-xs font-semibold text-slate-700">Reglas</div>
               <div className="mt-2 space-y-1 text-xs text-slate-600">
                 {rules.length ? rules.map((r, i) => <div key={i}>• {r}</div>) : <div>• Sin restricciones especiales.</div>}
@@ -8774,7 +9704,7 @@ export default function FretboardScalesPage() {
             </div>
 
             {studyStaffEvents.length ? (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
                 <div className="text-xs font-semibold text-slate-700">Pentagrama del voicing real</div>
                 <div className="mt-1 text-xs text-slate-600">
                   Notas según cuerdas y trastes reales del voicing actual: {studyVoicingPositionsText}
@@ -8790,6 +9720,136 @@ export default function FretboardScalesPage() {
               </div>
             ) : null}
             </div>
+
+            {substitutionSections.length ? (
+              <div className="mt-4">
+                <div className="mb-3 text-sm font-semibold text-slate-800">Sustituciones y reharmonización</div>
+                <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
+                  <div className="flex flex-wrap gap-2">
+                    {substitutionSections.map((section, sectionIdx) => (
+                      <button
+                        key={`tab-${section.title}`}
+                        type="button"
+                        onClick={() => setStudySubstitutionSectionIdx(sectionIdx)}
+                        className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                          sectionIdx === studySubstitutionSectionIdx
+                            ? "border-slate-300 bg-white text-slate-900 shadow-sm"
+                            : "border-slate-200 bg-slate-100 text-slate-700 hover:border-slate-300 hover:bg-white hover:text-slate-900"
+                        }`}
+                      >
+                        {substitutionTabLabels[sectionIdx] || section.title}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {activeSubstitutionSection ? (() => {
+                    const section = activeSubstitutionSection;
+                    const sectionIdx = studySubstitutionSectionIdx;
+                    const sectionId = buildStudyAnchorId("study-subsection", section.title);
+                    const prevSection = sectionIdx > 0 ? substitutionSections[sectionIdx - 1] : null;
+                    const nextSection = sectionIdx < substitutionSections.length - 1 ? substitutionSections[sectionIdx + 1] : null;
+
+                    return (
+                      <div className="mt-4">
+                      <div key={section.title} id={sectionId} className="scroll-mt-6 rounded-xl border border-slate-200 bg-slate-100 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-base font-semibold leading-6 text-slate-800">{section.title}</div>
+                            <div className="mt-1.5 text-justify text-xs leading-5 text-slate-500">{section.caption}</div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {prevSection ? (
+                              <button
+                                type="button"
+                                onClick={() => setStudySubstitutionSectionIdx(sectionIdx - 1)}
+                                className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+                                title={`Ir a ${prevSection.title}`}
+                              >
+                                ←
+                              </button>
+                            ) : (
+                              <span className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-slate-100 px-3 text-sm font-semibold text-slate-400">←</span>
+                            )}
+                            {nextSection ? (
+                              <button
+                                type="button"
+                                onClick={() => setStudySubstitutionSectionIdx(sectionIdx + 1)}
+                                className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+                                title={`Ir a ${nextSection.title}`}
+                              >
+                                →
+                              </button>
+                            ) : (
+                              <span className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-slate-100 px-3 text-sm font-semibold text-slate-400">→</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {section.items.length ? (
+                          <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+                            <div className="text-sm font-semibold text-slate-700">Índice de la sección</div>
+                            <div className="mt-3 grid gap-2">
+                              {section.items.map((item, itemIdx) => {
+                                const itemId = buildStudyAnchorId("study-subitem", section.title, item.title);
+                                return (
+                                  <a
+                                    key={`index-${section.title}-${item.title}`}
+                                    href={`#${itemId}`}
+                                    className="rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+                                  >
+                                    {`${sectionIdx + 1}.${itemIdx + 1} ${item.title}`}
+                                  </a>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="mt-4 space-y-4 text-justify text-sm leading-6 text-slate-600">
+                          {section.items.map((item, itemIdx) => {
+                            const itemId = buildStudyAnchorId("study-subitem", section.title, item.title);
+                            const numberedTitle = `${sectionIdx + 1}.${itemIdx + 1} ${item.title}`;
+                            return (
+                              <div key={`${section.title}-${item.title}`} id={itemId} className={`${itemIdx ? "border-t border-slate-200 pt-4" : ""} scroll-mt-6`}>
+                                <div className="text-base font-semibold leading-6 text-slate-800">{numberedTitle}</div>
+                                <div className="mt-3 space-y-3">
+                                  {renderStudyOuterBlock("Qué es", item.definition)}
+                                  {renderStudyOuterBlock("Cuándo aplica", item.appliesWhen)}
+                                  {renderStudyOuterBlock("Cómo sale", item.derivation)}
+                                  {renderStudyOuterBlock("Ejemplos y lectura", item.examples)}
+                                </div>
+                                {Array.isArray(item.staffGroups) && item.staffGroups.length ? (
+                                  <div className="space-y-3 pt-4">
+                                    {item.staffGroups.filter((group) => group?.events?.length).map((group, groupIdx) => (
+                                      <div key={`${item.title}-staff-${groupIdx}`} className="rounded-lg border border-slate-200 bg-white p-3">
+                                        <div className="text-xs font-semibold text-slate-700">{group.title}</div>
+                                        {group.caption ? <div className="mt-1 text-justify text-xs leading-5 text-slate-500">{group.caption}</div> : null}
+                                        {Array.isArray(group.labels) && group.labels.length ? (
+                                          <div className="mt-2 text-justify text-xs leading-5 text-slate-600">Acordes en este orden: {group.labels.join(" · ")}</div>
+                                        ) : null}
+                                        <div className="mt-3">
+                                          <MusicStaff
+                                            events={group.events}
+                                            preferSharps={d?.preferSharps ?? chordPreferSharps}
+                                            clefMode="guitar"
+                                            keySignature={substitutionKeySignature}
+                                          />
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      </div>
+                    );
+                  })() : null}
+              </div>
+            ) : null}
           </>
         ) : null}
       </section>
@@ -10831,7 +11891,7 @@ function ChordFretboard({
   );
 
   return (
-    <div className="min-h-screen overflow-x-auto bg-gradient-to-b from-slate-50 to-slate-100 text-slate-900">
+    <div className="min-h-screen overflow-x-auto bg-gradient-to-b from-slate-100 to-slate-200 text-slate-900">
       <div ref={appRootRef} className={wrap}>
         <header className="mb-3">
           <div className="flex items-center justify-between gap-3">
