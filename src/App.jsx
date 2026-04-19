@@ -951,7 +951,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "3.04";
+const APP_VERSION = "3.10";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -3020,8 +3020,16 @@ const CHORD_DETECT_FORMULAS = [
   { id: "madd11", intervals: [0, 3, 5, 7], degreeLabels: ["1", "b3", "11", "5"], suffix: "m(add11)", ui: { quality: "min", suspension: "none", structure: "tetrad", inversion: "all", form: "open", positionForm: "open", ext7: false, ext6: false, ext9: false, ext11: true, ext13: false } },
   { id: "maddb13", intervals: [0, 3, 7, 8], degreeLabels: ["1", "b3", "5", "b13"], suffix: "m(addb13)", ui: null },
   { id: "maj9", intervals: [0, 2, 4, 7, 11], degreeLabels: ["1", "9", "3", "5", "7"], suffix: "maj9", ui: { quality: "maj", suspension: "none", structure: "chord", inversion: "all", form: "open", positionForm: "open", ext7: true, ext6: false, ext9: true, ext11: false, ext13: false } },
+  { id: "maj7add13", intervals: [0, 4, 7, 9, 11], degreeLabels: ["1", "3", "5", "13", "7"], suffix: "maj7(add13)", ui: null },
+  { id: "maj7add13omit5", intervals: [0, 4, 9, 11], degreeLabels: ["1", "3", "13", "7"], suffix: "maj7(add13)", ui: null, manualOnly: true },
+  { id: "maj13", intervals: [0, 2, 4, 7, 9, 11], degreeLabels: ["1", "9", "3", "5", "13", "7"], suffix: "maj13", ui: { quality: "maj", suspension: "none", structure: "chord", inversion: "all", form: "open", positionForm: "open", ext7: true, ext6: false, ext9: true, ext11: false, ext13: true } },
+  // Lecturas extendidas habituales en voicings reales, donde a menudo se omite la 5ª o incluso la 3ª.
+  { id: "maj13omit5", intervals: [0, 2, 4, 9, 11], degreeLabels: ["1", "9", "3", "13", "7"], suffix: "maj13", ui: null, manualOnly: true },
   { id: "9", intervals: [0, 2, 4, 7, 10], degreeLabels: ["1", "9", "3", "5", "b7"], suffix: "9", ui: { quality: "dom", suspension: "none", structure: "chord", inversion: "all", form: "open", positionForm: "open", ext7: true, ext6: false, ext9: true, ext11: false, ext13: false } },
   { id: "m9", intervals: [0, 2, 3, 7, 10], degreeLabels: ["1", "9", "b3", "5", "b7"], suffix: "m9", ui: { quality: "min", suspension: "none", structure: "chord", inversion: "all", form: "open", positionForm: "open", ext7: true, ext6: false, ext9: true, ext11: false, ext13: false } },
+  { id: "m7no5addb13", intervals: [0, 3, 8, 10], degreeLabels: ["1", "b3", "b13", "b7"], suffix: "m7(no5)(b13)", ui: null, manualOnly: true },
+  { id: "m11flat13", intervals: [0, 3, 5, 7, 8, 10], degreeLabels: ["1", "b3", "11", "5", "b13", "b7"], suffix: "m11(b13)", ui: null },
+  { id: "m11flat13omit3", intervals: [0, 5, 7, 8, 10], degreeLabels: ["1", "11", "5", "b13", "b7"], suffix: "m11(b13)", ui: null, manualOnly: true },
   { id: "maj7", intervals: [0, 4, 7, 11], degreeLabels: ["1", "3", "5", "7"], suffix: "maj7", ui: { quality: "maj", suspension: "none", structure: "tetrad", inversion: "all", form: "open", positionForm: "open", ext7: true, ext6: false, ext9: false, ext11: false, ext13: false } },
   { id: "7", intervals: [0, 4, 7, 10], degreeLabels: ["1", "3", "5", "b7"], suffix: "7", ui: { quality: "dom", suspension: "none", structure: "tetrad", inversion: "all", form: "open", positionForm: "open", ext7: true, ext6: false, ext9: false, ext11: false, ext13: false } },
   { id: "m7", intervals: [0, 3, 7, 10], degreeLabels: ["1", "b3", "5", "b7"], suffix: "m7", ui: { quality: "min", suspension: "none", structure: "tetrad", inversion: "all", form: "open", positionForm: "open", ext7: true, ext6: false, ext9: false, ext11: false, ext13: false } },
@@ -3054,9 +3062,50 @@ function detectFormulaRole(formula, interval) {
   return "other";
 }
 
+function detectedRoleOrder(role) {
+  switch (role) {
+    case "root": return 0;
+    case "third": return 1;
+    case "fifth": return 2;
+    case "seventh": return 3;
+    case "ninth": return 4;
+    case "eleventh": return 5;
+    case "thirteenth": return 6;
+    default: return 7;
+  }
+}
+
+function buildDetectedVisibleFormulaItems({ formula, noteNames, coreSelected }) {
+  const selectedSet = new Set((coreSelected || []).map(mod12));
+  return (formula?.intervals || [])
+    .map((intv, idx) => {
+      const normalized = mod12(intv);
+      if (!selectedSet.has(normalized)) return null;
+      const label = String(formula?.degreeLabels?.[idx] || "");
+      return {
+        intv: normalized,
+        idx,
+        label,
+        note: noteNames?.[idx] || "",
+        order: detectedRoleOrder(detectFormulaRole(formula, normalized)),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.order !== b.order) return a.order - b.order;
+      if (a.intv !== b.intv) return a.intv - b.intv;
+      return a.idx - b.idx;
+    });
+}
+
 function isExtensionLikeDegreeLabel(label) {
   const s = String(label || "").toLowerCase();
   return s.includes("6") || s.includes("7") || s.includes("9") || s.includes("11") || s.includes("13");
+}
+
+function isOptionalSlashTensionInterval(interval) {
+  const intv = mod12(interval);
+  return intv === 1 || intv === 2 || intv === 5 || intv === 6 || intv === 8 || intv === 9;
 }
 
 function isThirdDegreeLabel(label) {
@@ -3106,6 +3155,7 @@ function allowMissingThirdCandidate(candidate) {
 function shouldFilterExternalBassSubsetCandidate(candidate, exactCandidates) {
   if (candidate?.formula?.quartal) return false;
   if (!candidate || candidate.externalBassInterval == null) return false;
+  if (isOptionalSlashTensionInterval(candidate.externalBassInterval)) return false;
   const wanted = new Set([...candidate.visibleIntervals, mod12(candidate.externalBassInterval)].map(mod12));
 
   return exactCandidates.some((exact) => {
@@ -3150,6 +3200,21 @@ function shouldFilterExactSubsetCandidate(candidate, exactCandidates) {
   });
 }
 
+function shouldFilterInexactCandidateShadowedByExact(candidate, exactCandidates) {
+  if (candidate?.formula?.quartal) return false;
+  if (!candidate || candidate.exact) return false;
+  if (candidate.externalBassInterval != null && isOptionalSlashTensionInterval(candidate.externalBassInterval)) return false;
+  const ownSig = candidateHeardIntervalSignature(candidate);
+  if (!ownSig) return false;
+
+  return exactCandidates.some((exact) => {
+    if (!exact?.exact) return false;
+    if (exact.rootPc !== candidate.rootPc) return false;
+    if (exact.bassPc !== candidate.bassPc) return false;
+    return candidateHeardIntervalSignature(exact) === ownSig;
+  });
+}
+
 function candidateVisibleDegreeLabels(candidate) {
   if (!candidate?.formula?.intervals?.length) return [];
   return candidate.formula.intervals
@@ -3178,6 +3243,9 @@ function candidateFormulaComplexityPenalty(candidate) {
   if (["6", "m6", "add9", "madd9", "add11", "madd11", "sus2add13no5"].includes(id)) return 2;
   if (["maj7", "7", "m7", "m7b5", "dim7"].includes(id)) return 4;
   if (["maj9", "9", "m9"].includes(id)) return 6;
+  if (["m7no5addb13"].includes(id)) return 8;
+  if (["maj7add13", "maj7add13omit5", "maj13", "maj13omit5"].includes(id)) return 8;
+  if (["m11flat13", "m11flat13omit3"].includes(id)) return 10;
   if (["mmaj7"].includes(id)) return 8;
   if (["maj7sharp5", "7sharp5", "7flat5", "maddb13"].includes(id)) return 12;
   return 7;
@@ -3436,12 +3504,9 @@ function analyzeDetectedChordCandidates(selectedNotes) {
 
       for (const spelling of spellings) {
         const noteNames = spelling.noteNames;
-        const visiblePairs = formulaIntervals
-          .map((intv, idx) => coreSelected.includes(intv) ? `${formula.degreeLabels[idx]}=${noteNames[idx]}` : null)
-          .filter(Boolean);
-        const visibleNotes = formulaIntervals
-          .map((intv, idx) => coreSelected.includes(intv) ? noteNames[idx] : null)
-          .filter(Boolean);
+        const visibleItems = buildDetectedVisibleFormulaItems({ formula, noteNames, coreSelected });
+        const visiblePairs = visibleItems.map((item) => `${item.label}=${item.note}`);
+        const visibleNotes = visibleItems.map((item) => item.note);
         const uiPatch = formula.allowDyad ? null : (formula.ui ? { rootPc, spellPreferSharps: spelling.preferSharpsChoice, ...formula.ui } : null);
         const candidate = {
           id: `${formula.id}|${rootPc}|${externalBassInterval == null ? "in" : externalBassInterval}|${missingLabels.join(",")}|${spelling.preferSharpsChoice ? "sharp" : "flat"}`,
@@ -3491,6 +3556,7 @@ function analyzeDetectedChordCandidates(selectedNotes) {
       if (shouldFilterExactSubsetCandidate(c, exactCandidates)) return false;
       return true;
     }
+    if (shouldFilterInexactCandidateShadowedByExact(c, exactCandidates)) return false;
     if (shouldFilterExternalBassSubsetCandidate(c, exactCandidates)) return false;
     if (c.missingLabels.some((x) => isThirdDegreeLabel(x))) {
       if (!allowMissingThirdCandidate(c)) return false;
@@ -9259,6 +9325,7 @@ export default function FretboardScalesPage() {
         if (!chordDetectSelectedCandidate.visibleIntervals.includes(interval)) return;
         const degreeRaw = String(chordDetectSelectedCandidate.formula.degreeLabels?.[idx] || "");
         entries.push({
+          order: detectedRoleOrder(detectFormulaRole(chordDetectSelectedCandidate.formula, interval)),
           interval,
           item: {
             note: spellNoteFromChordInterval(chordDetectSelectedCandidate.rootPc, interval, prefer),
@@ -9269,20 +9336,10 @@ export default function FretboardScalesPage() {
       });
     }
 
-    if (chordDetectSelectedCandidate.externalBassInterval != null) {
-      const interval = mod12(chordDetectSelectedCandidate.externalBassInterval);
-      const degreeRaw = intervalToSimpleChordDegreeToken(interval);
-      entries.push({
-        interval,
-        item: {
-          note: spellNoteFromChordInterval(chordDetectSelectedCandidate.rootPc, interval, prefer),
-          degree: formatChordBadgeDegree(degreeRaw),
-          role: chordBadgeRoleFromDegreeLabel(degreeRaw, interval),
-        },
-      });
-    }
-
-    entries.sort((a, b) => a.interval - b.interval);
+    entries.sort((a, b) => {
+      if (a.order !== b.order) return a.order - b.order;
+      return a.interval - b.interval;
+    });
     return entries.map((x) => x.item);
   }, [chordDetectSelectedCandidate, chordPreferSharps]);
 
