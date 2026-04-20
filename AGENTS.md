@@ -22,6 +22,8 @@ Cada cambio debe mantener sentido musical, coherencia funcional dentro de la app
 
 - No se debe hacer commit, tag ni push automáticamente al terminar un cambio.
 - Solo se publica cuando el usuario lo pida explícitamente con una orden tipo "súbelo".
+- Cuando el usuario dé una orden explícita de publicación como `súbelo`, `publícalo`, `haz el push` o equivalente, esa orden debe interpretarse como autorización completa para ejecutar sin confirmaciones intermedias todo el flujo de publicación necesario en el repo.
+- Esa autorización incluye, si aplica, actualizar versiones según estas reglas, hacer `git add`, crear el `commit`, crear el `tag` anotado y hacer `push` de `main` y del tag correspondiente.
 
 ---
 
