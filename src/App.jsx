@@ -64,6 +64,7 @@ const SCALE_PRESETS = {
   // Modos/colores habituales
   "Frigia dominante": [0, 1, 4, 5, 7, 8, 10],
   "Lidia dominante": [0, 2, 4, 6, 7, 9, 10],
+  "Mixolidia b9 #9 b13": [0, 1, 3, 4, 5, 7, 8, 10],
   "Alterada (Superlocria)": [0, 1, 3, 4, 6, 8, 10],
   "Húngara menor (Gypsy)": [0, 2, 3, 6, 7, 8, 11],
 
@@ -91,6 +92,10 @@ const SCALE_NAME_ALIASES = {
   "Escala menor (natural)": "Menor natural",
   "Bebop mixolidia": "Bebop dominante",
   "Bebop menor": "Bebop dórica",
+};
+
+const SCALE_INTERVAL_LABEL_OVERRIDES = {
+  "Mixolidia b9 #9 b13": ["1", "b9", "#9", "3", "4", "5", "b13", "b7"],
 };
 
 
@@ -173,6 +178,15 @@ const MANUAL_SCALE_TETRAD_PRESETS = {
     { scaleIdx: 4, degreeLabel: "V", suffix: "7b5" },
     { scaleIdx: 5, degreeLabel: "bVI", suffix: "maj7#5" },
     { scaleIdx: 6, degreeLabel: "VII", suffix: "(no tert.)" },
+  ],
+};
+
+const MANUAL_SCALE_HARMONY_PRESETS = {
+  "Mixolidia b9 #9 b13": [
+    { scaleIdx: 0, degreeLabel: "I", quality: "dom", suspension: "none", structure: "tetrad", ext7: true, ext6: false, ext9: false, ext11: false, ext13: false },
+    { scaleIdx: 1, degreeLabel: "bII", quality: "dim", suspension: "none", structure: "tetrad", ext7: true, ext6: false, ext9: false, ext11: false, ext13: false },
+    { scaleIdx: 4, degreeLabel: "IV", quality: "min", suspension: "none", structure: "tetrad", ext7: true, ext6: false, ext9: false, ext11: false, ext13: false },
+    { scaleIdx: 6, degreeLabel: "bVI", quality: "maj", suspension: "none", structure: "tetrad", ext7: true, ext6: false, ext9: false, ext11: false, ext13: false },
   ],
 };
 
@@ -792,10 +806,61 @@ function tetradSuffixFromOffsets(thirdOffset, fifthOffset, seventhOffset) {
   return "?";
 }
 
+function buildManualScaleHarmonySpecs({ rootPc, scaleName, scaleIntervals, spelledScaleNotes, preferSharps }) {
+  const normalized = normalizeScaleName(scaleName);
+  const preset = MANUAL_SCALE_HARMONY_PRESETS[normalized];
+  if (!preset?.length) return null;
+
+  return preset.map((item) => {
+    const rootOffset = scaleIntervals[item.scaleIdx];
+    const rootNote = spelledScaleNotes[item.scaleIdx] || pcToName(mod12(rootPc + rootOffset), preferSharps);
+    const suffix = chordDisplaySuffixOnly({
+      quality: item.quality,
+      suspension: item.suspension || "none",
+      structure: item.structure,
+      ext7: !!item.ext7,
+      ext6: !!item.ext6,
+      ext9: !!item.ext9,
+      ext11: !!item.ext11,
+      ext13: !!item.ext13,
+    });
+    const name = `${rootNote}${suffix}`;
+
+    return {
+      rootPc: mod12(rootPc + rootOffset),
+      quality: item.quality,
+      suspension: item.suspension || "none",
+      structure: item.structure,
+      inversion: "root",
+      form: "open",
+      positionForm: "open",
+      ext7: !!item.ext7,
+      ext6: !!item.ext6,
+      ext9: !!item.ext9,
+      ext11: !!item.ext11,
+      ext13: !!item.ext13,
+      spellPreferSharps: preferSharps,
+      supported: true,
+      noteName: rootNote,
+      name,
+      degreeName: `${item.degreeLabel}${suffix}`,
+      scaleIdx: item.scaleIdx,
+    };
+  });
+}
+
 function buildScaleTetradHarmonization({ rootPc, scaleName, harmonyMode, scaleIntervals, spelledScaleNotes, preferSharps }) {
   const normalized = normalizeScaleName(scaleName);
   const n = scaleIntervals.length;
   if (n < 4) return [];
+
+  const manualHarmony = buildManualScaleHarmonySpecs({ rootPc, scaleName: normalized, scaleIntervals, spelledScaleNotes, preferSharps });
+  if (manualHarmony?.length) {
+    return manualHarmony.map((item) => ({
+      degreeName: item.degreeName,
+      noteName: item.name,
+    }));
+  }
 
   const manualPreset = MANUAL_SCALE_TETRAD_PRESETS[normalized];
   if (manualPreset && manualPreset.length) {
@@ -951,7 +1016,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "3.11";
+const APP_VERSION = "3.13";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -4495,10 +4560,17 @@ function normalizeScaleName(name) {
   return SCALE_NAME_ALIASES[name] || name;
 }
 
+function buildScaleIntervalLabels(scaleName, scaleIntervals) {
+  const normalized = normalizeScaleName(scaleName || "");
+  const override = SCALE_INTERVAL_LABEL_OVERRIDES[normalized];
+  if (Array.isArray(override) && override.length === (scaleIntervals || []).length) return [...override];
+  return (scaleIntervals || []).map((i) => intervalToDegreeToken(i));
+}
+
 function scaleOptionLabel(name) {
   const ints = SCALE_PRESETS[name];
   if (!Array.isArray(ints)) return name;
-  return `${name} (${ints.map((i) => intervalToDegreeToken(i)).join(" ")})`;
+  return `${name} (${buildScaleIntervalLabels(name, ints).join(" ")})`;
 }
 
 function buildScaleIntervals(scaleName, customInput, rootPc) {
@@ -8398,6 +8470,7 @@ export default function FretboardScalesPage() {
   // --------------------------------------------------------------------------
 
   const scaleIntervals = useMemo(() => buildScaleIntervals(scaleName, customInput, rootPc), [scaleName, customInput, rootPc]);
+  const scaleIntervalLabels = useMemo(() => buildScaleIntervalLabels(scaleName, scaleIntervals), [scaleName, scaleIntervals]);
 
   useEffect(() => {
     const root = appRootRef.current;
@@ -10884,6 +10957,18 @@ export default function FretboardScalesPage() {
   const harmonizedScale = useMemo(() => {
     const base = nearSlots.find((s) => s?.enabled) || nearSlots?.[0] || {};
     const withSeventh = base.structure === "tetrad" || !!base.ext7;
+    const manualHarmony = buildManualScaleHarmonySpecs({ rootPc, scaleName, scaleIntervals, spelledScaleNotes, preferSharps });
+
+    if (manualHarmony?.length) {
+      return {
+        tonicName: spelledScaleNotes[0] || pcToName(rootPc, preferSharps),
+        scaleLabel: scaleName,
+        withSeventh: true,
+        degrees: manualHarmony,
+        names: manualHarmony.map((item) => item.name),
+        preferredDegreeIdx: [1, 2, 3].filter((i) => i < manualHarmony.length),
+      };
+    }
 
     const degrees = scaleIntervals.map((interval, i) => {
       const built = buildHarmonyDegreeChord({ scaleName, harmonyMode, scaleIntervals, degreeIndex: i, withSeventh });
@@ -10925,6 +11010,7 @@ export default function FretboardScalesPage() {
       scaleLabel: scaleName,
       withSeventh,
       degrees,
+      preferredDegreeIdx: [1, 3, 4].filter((i) => i < degrees.length),
       names: (MANUAL_SCALE_TETRAD_PRESETS[normalizeScaleName(scaleName)] || (withSeventh && scaleTetradHarmony.length)) ? scaleTetradHarmony.map((x) => x.noteName) : degrees.map((d) => d.name),
     };
   }, [
@@ -10993,7 +11079,9 @@ export default function FretboardScalesPage() {
     setNearSlots((prev) => {
       if (!prev?.length) return prev;
 
-      const preferredDegreeIdx = [1, 3, 4].filter((i) => i < harmonizedScale.degrees.length);
+      const preferredDegreeIdx = harmonizedScale.preferredDegreeIdx?.length
+        ? harmonizedScale.preferredDegreeIdx
+        : [1, 3, 4].filter((i) => i < harmonizedScale.degrees.length);
       let changed = false;
 
       const next = prev.map((s, i) => {
@@ -12498,7 +12586,7 @@ function ChordFretboard({
 
         <div className="mt-3 space-y-1 text-xs text-slate-600">
           <div>
-            Escala activa ({pcToName(rootPc, preferSharps)}): {scaleIntervals.map((i) => intervalToDegreeToken(i)).join(" – ")}
+            Escala activa ({pcToName(rootPc, preferSharps)}): {scaleIntervalLabels.join(" – ")}
           </div>
           <div>
             Escala activa ({pcToName(rootPc, preferSharps)}): {spelledScaleNotes.join(" – ")}
@@ -12677,7 +12765,7 @@ function ChordFretboard({
 
         <div className="mt-3 space-y-1 text-xs text-slate-600">
           <div>
-            Escala activa ({pcToName(rootPc, preferSharps)}): {scaleIntervals.map((i) => intervalToDegreeToken(i)).join(" – ")}
+            Escala activa ({pcToName(rootPc, preferSharps)}): {scaleIntervalLabels.join(" – ")}
           </div>
           <div>
             Escala activa ({pcToName(rootPc, preferSharps)}): {spelledScaleNotes.join(" – ")}
