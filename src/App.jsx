@@ -951,7 +951,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "3.10";
+const APP_VERSION = "3.11";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -2033,6 +2033,42 @@ function actualInversionLabelFromVoicing(plan, voicing) {
   return `Bajo ${intervalToDegreeToken(bassInt)}`;
 }
 
+function deriveDetectedCandidateCopyInversion(candidate) {
+  if (!candidate?.uiPatch) return null;
+  if (candidate.externalBassInterval != null) return null;
+
+  const patch = candidate.uiPatch;
+  const bassInterval = mod12(candidate.bassPc - candidate.rootPc);
+  const thirdOffset = chordThirdOffsetFromUI(patch.quality, patch.suspension || "none");
+  const fifthOffset = chordFifthOffsetFromUI(patch.quality, patch.suspension || "none");
+
+  if (bassInterval === 0) return "root";
+  if (bassInterval === mod12(thirdOffset)) return "1";
+  if (bassInterval === mod12(fifthOffset)) return "2";
+
+  if (hasEffectiveSeventh({
+    structure: patch.structure,
+    ext7: !!patch.ext7,
+    ext6: !!patch.ext6,
+    ext9: !!patch.ext9,
+    ext11: !!patch.ext11,
+    ext13: !!patch.ext13,
+  })) {
+    const seventhOffset = seventhOffsetForQuality(patch.quality);
+    if (bassInterval === mod12(seventhOffset)) return "3";
+    return null;
+  }
+
+  const addOffset = singleAddOffsetFromUi({
+    ext6: !!patch.ext6,
+    ext9: !!patch.ext9,
+    ext11: !!patch.ext11,
+    ext13: !!patch.ext13,
+  });
+  if (addOffset != null && bassInterval === mod12(addOffset)) return "3";
+  return null;
+}
+
 function analyzeVoicingVsPlan(plan, voicing, preferSharps) {
   if (!plan) {
     return {
@@ -3027,6 +3063,7 @@ const CHORD_DETECT_FORMULAS = [
   { id: "maj13omit5", intervals: [0, 2, 4, 9, 11], degreeLabels: ["1", "9", "3", "13", "7"], suffix: "maj13", ui: null, manualOnly: true },
   { id: "9", intervals: [0, 2, 4, 7, 10], degreeLabels: ["1", "9", "3", "5", "b7"], suffix: "9", ui: { quality: "dom", suspension: "none", structure: "chord", inversion: "all", form: "open", positionForm: "open", ext7: true, ext6: false, ext9: true, ext11: false, ext13: false } },
   { id: "m9", intervals: [0, 2, 3, 7, 10], degreeLabels: ["1", "9", "b3", "5", "b7"], suffix: "m9", ui: { quality: "min", suspension: "none", structure: "chord", inversion: "all", form: "open", positionForm: "open", ext7: true, ext6: false, ext9: true, ext11: false, ext13: false } },
+  { id: "m7flat13", intervals: [0, 3, 7, 8, 10], degreeLabels: ["1", "b3", "5", "b13", "b7"], suffix: "m7(b13)", ui: null, manualOnly: true },
   { id: "m7no5addb13", intervals: [0, 3, 8, 10], degreeLabels: ["1", "b3", "b13", "b7"], suffix: "m7(no5)(b13)", ui: null, manualOnly: true },
   { id: "m11flat13", intervals: [0, 3, 5, 7, 8, 10], degreeLabels: ["1", "b3", "11", "5", "b13", "b7"], suffix: "m11(b13)", ui: null },
   { id: "m11flat13omit3", intervals: [0, 5, 7, 8, 10], degreeLabels: ["1", "11", "5", "b13", "b7"], suffix: "m11(b13)", ui: null, manualOnly: true },
@@ -3052,10 +3089,13 @@ function appendMissingDegreesToSuffix(baseSuffix, missingDegrees) {
 function detectFormulaRole(formula, interval) {
   const idx = formula?.intervals?.findIndex((x) => mod12(x) === mod12(interval));
   const label = idx >= 0 ? String(formula.degreeLabels[idx] || "") : "";
+  const formulaId = String(formula?.id || "").toLowerCase();
+  const isSuspensionFormula = !formula?.quartal && formulaId.startsWith("sus");
   if (mod12(interval) === 0) return "root";
+  if (isSuspensionFormula && (label === "2" || label === "4")) return "third";
   if (label.includes("13") || label === "6") return "thirteenth";
-  if (label.includes("11") || label === "4") return "eleventh";
-  if (label.includes("9") || label === "2") return "ninth";
+  if (label.includes("11")) return "eleventh";
+  if (label.includes("9")) return "ninth";
   if (label.includes("7")) return "seventh";
   if (label.includes("5")) return "fifth";
   if (label.includes("3") || label === "2" || label === "4") return "third";
@@ -3243,7 +3283,7 @@ function candidateFormulaComplexityPenalty(candidate) {
   if (["6", "m6", "add9", "madd9", "add11", "madd11", "sus2add13no5"].includes(id)) return 2;
   if (["maj7", "7", "m7", "m7b5", "dim7"].includes(id)) return 4;
   if (["maj9", "9", "m9"].includes(id)) return 6;
-  if (["m7no5addb13"].includes(id)) return 8;
+  if (["m7flat13", "m7no5addb13"].includes(id)) return 8;
   if (["maj7add13", "maj7add13omit5", "maj13", "maj13omit5"].includes(id)) return 8;
   if (["m11flat13", "m11flat13omit3"].includes(id)) return 10;
   if (["mmaj7"].includes(id)) return 8;
@@ -3618,15 +3658,19 @@ function buildDetectedCandidateNoteNameForPc(pc, candidate, preferSharpsFallback
   return spellNoteFromChordInterval(candidate.rootPc, interval, prefer);
 }
 
+function buildDetectedCandidateDegreeLabelForPc(pc, candidate) {
+  if (!candidate) return null;
+  const interval = mod12(pc - candidate.rootPc);
+  const idx = candidate.formula.intervals.findIndex((x) => mod12(x) === interval);
+  return idx >= 0 ? String(candidate.formula.degreeLabels[idx] || "") : null;
+}
+
 function buildDetectedCandidateLabelForPc(pc, candidate, preferSharpsFallback, showIntervals = true, showNotes = true) {
   const noteName = buildDetectedCandidateNoteNameForPc(pc, candidate, preferSharpsFallback);
   if (!candidate) return noteName;
 
   const interval = mod12(pc - candidate.rootPc);
-  const idx = candidate.formula.intervals.findIndex((x) => mod12(x) === interval);
-  const degree = idx >= 0
-    ? candidate.formula.degreeLabels[idx]
-    : intervalToSimpleChordDegreeToken(interval);
+  const degree = buildDetectedCandidateDegreeLabelForPc(pc, candidate) || intervalToSimpleChordDegreeToken(interval);
 
   if (!showIntervals && !showNotes) return degree;
   if (showIntervals && showNotes) return `${degree}-${noteName}`;
@@ -3639,7 +3683,7 @@ function buildDetectedCandidateBackgroundLabelForPc(pc, candidate, preferSharpsF
 
   const prefer = candidate.preferSharps ?? preferSharpsFallback;
   const interval = mod12(pc - candidate.rootPc);
-  const degree = intervalToSimpleChordDegreeToken(interval);
+  const degree = buildDetectedCandidateDegreeLabelForPc(pc, candidate) || intervalToSimpleChordDegreeToken(interval);
   const noteName = spellNoteFromChordInterval(candidate.rootPc, interval, prefer);
 
   if (!showIntervals && !showNotes) return degree;
@@ -3662,6 +3706,12 @@ function buildManualSelectionVoicing(selectedNotes, rootPc, maxFret) {
     fretsLH[5 - n.sIdx] = n.fret;
   }
   return buildVoicingFromFretsLH({ fretsLH, rootPc, maxFret });
+}
+
+function clampChordMaxDistForReach(reach) {
+  const allowed = [4, 5, 6];
+  const wanted = Math.max(0, Number(reach) || 0);
+  return allowed.find((value) => value >= wanted) ?? allowed[allowed.length - 1];
 }
 
 function buildCloseTetradAbsoluteOrders(thirdOffset, fifthOffset, seventhOffset) {
@@ -4293,6 +4343,35 @@ function intervalToChordToken(semi, { ext6, ext9, ext11, ext13 }) {
   if (ext6 && s === 9) return "6";
 
   return base;
+}
+
+function findChordDetectFormulaByUi({ quality, suspension = "none", structure, ext7, ext6, ext9, ext11, ext13 }) {
+  return CHORD_DETECT_FORMULAS.find((formula) => {
+    const ui = formula?.ui;
+    if (!ui) return false;
+    return ui.quality === quality
+      && (ui.suspension || "none") === (suspension || "none")
+      && ui.structure === structure
+      && !!ui.ext7 === !!ext7
+      && !!ui.ext6 === !!ext6
+      && !!ui.ext9 === !!ext9
+      && !!ui.ext11 === !!ext11
+      && !!ui.ext13 === !!ext13;
+  }) || null;
+}
+
+function buildChordDegreeLabelsFromUi({ quality, suspension = "none", structure, ext7, ext6, ext9, ext11, ext13, chordIntervals }) {
+  const formula = findChordDetectFormulaByUi({ quality, suspension, structure, ext7, ext6, ext9, ext11, ext13 });
+  const safeIntervals = Array.isArray(chordIntervals) ? chordIntervals.map(mod12) : [];
+  if (!formula?.degreeLabels?.length || !safeIntervals.length) return null;
+
+  const formulaIntervals = (formula.intervals || []).map(mod12);
+  const labels = safeIntervals.map((interval) => {
+    const idx = formulaIntervals.findIndex((x) => x === mod12(interval));
+    return idx >= 0 ? String(formula.degreeLabels[idx] || "") : "";
+  });
+
+  return labels.every(Boolean) ? labels : null;
 }
 
 function degreeNumberFromInterval(interval) {
@@ -7222,6 +7301,26 @@ function chordBadgeRoleFromDegreeLabel(label, interval) {
   return "other";
 }
 
+function chordFormulaBadgeRoleFromDegreeLabel(label, interval) {
+  const s = String(label || "").toLowerCase();
+  if (s === "2" || s === "4") return "third";
+  return chordBadgeRoleFromDegreeLabel(label, interval);
+}
+
+function chordBadgeRoleOrder(role) {
+  switch (role) {
+    case "root": return 0;
+    case "third": return 1;
+    case "fifth": return 2;
+    case "sixth": return 3;
+    case "seventh": return 4;
+    case "ninth": return 5;
+    case "eleventh": return 6;
+    case "thirteenth": return 7;
+    default: return 8;
+  }
+}
+
 function buildChordBadgeItems({ notes, intervals, degreeLabels, ext6 = false, ext9 = false, ext11 = false, ext13 = false, structure = "triad" }) {
   const safeNotes = Array.isArray(notes) ? notes : [];
   const safeIntervals = Array.isArray(intervals) ? intervals : [];
@@ -7237,10 +7336,17 @@ function buildChordBadgeItems({ notes, intervals, degreeLabels, ext6 = false, ex
       });
       const degreeRaw = String(degreeLabels?.[idx] || fallback);
       const degree = formatChordBadgeDegree(degreeRaw);
-      const role = chordBadgeRoleFromDegreeLabel(degreeRaw, rawInterval);
-      return note && degree ? { note, degree, role } : null;
+      const role = chordFormulaBadgeRoleFromDegreeLabel(degreeRaw, rawInterval);
+      return note && degree ? { note, degree, role, interval: mod12(rawInterval) } : null;
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort((a, b) => {
+      const aOrder = chordBadgeRoleOrder(a.role);
+      const bOrder = chordBadgeRoleOrder(b.role);
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return a.interval - b.interval;
+    })
+    .map(({ interval, ...item }) => item);
 }
 
 function ChordNoteBadgeStrip({ items, bassNote, bassLabel = "Bajo", colorMap }) {
@@ -8584,6 +8690,20 @@ export default function FretboardScalesPage() {
       }),
     [chordQuality, chordSuspension, chordStructure, chordExt7, chordExt6, chordExt9, chordExt11, chordExt13]
   );
+  const chordDegreeLabels = useMemo(
+    () => buildChordDegreeLabelsFromUi({
+      quality: chordQuality,
+      suspension: chordSuspension,
+      structure: chordStructure,
+      ext7: chordExt7,
+      ext6: chordExt6,
+      ext9: chordExt9,
+      ext11: chordExt11,
+      ext13: chordExt13,
+      chordIntervals,
+    }),
+    [chordQuality, chordSuspension, chordStructure, chordExt7, chordExt6, chordExt9, chordExt11, chordExt13, chordIntervals]
+  );
 
   const chordSuffix = useMemo(
     () =>
@@ -9216,6 +9336,10 @@ export default function FretboardScalesPage() {
     setStudyTarget("main");
 
     const p = candidate.uiPatch;
+    const detectedInversion = deriveDetectedCandidateCopyInversion(candidate);
+    const manualCopiedVoicing = buildManualSelectionVoicing(chordDetectSelectedNotes, p.rootPc, maxFret);
+    const wantedFrets = manualCopiedVoicing?.frets || null;
+    const requiredMaxDist = manualCopiedVoicing?.reach ? clampChordMaxDistForReach(manualCopiedVoicing.reach) : null;
 
     if (p.family === "quartal") {
       setChordFamily("quartal");
@@ -9236,7 +9360,7 @@ export default function FretboardScalesPage() {
     setChordQuality(p.quality);
     setChordSuspension(p.suspension || "none");
     setChordStructure(p.structure);
-    setChordInversion(p.inversion || "root");
+    setChordInversion(detectedInversion || p.inversion || "root");
     setChordPositionForm(p.positionForm || "open");
     setChordForm(p.form || p.positionForm || "open");
     setChordExt7(!!p.ext7);
@@ -9244,7 +9368,11 @@ export default function FretboardScalesPage() {
     setChordExt9(!!p.ext9);
     setChordExt11(!!p.ext11);
     setChordExt13(!!p.ext13);
-    setChordSelectedFrets(null);
+    if (requiredMaxDist != null && requiredMaxDist !== chordMaxDist) {
+      setChordMaxDist(requiredMaxDist);
+    }
+    pendingChordRestoreRef.current = { active: true, frets: wantedFrets };
+    setChordSelectedFrets(wantedFrets);
     setChordVoicingIdx(0);
   }
 
@@ -9278,13 +9406,16 @@ export default function FretboardScalesPage() {
   );
 
   const chordDetectSelectionPositionsText = useMemo(
-    () => chordDetectSelectedNotes.length
-      ? [...chordDetectSelectedNotes]
-          .sort((a, b) => a.pitch - b.pitch)
-          .map((n) => `${n.sIdx + 1}ª/${n.fret}`)
-          .join(" · ")
-      : "",
-    [chordDetectSelectedNotes]
+    () => {
+      if (!chordDetectSelectedNotes.length) return "";
+      const positions = [...chordDetectSelectedNotes]
+        .sort((a, b) => a.pitch - b.pitch)
+        .map((n) => `${n.sIdx + 1}ª/${n.fret}`)
+        .join(" · ");
+      const manualVoicing = buildManualSelectionVoicing(chordDetectSelectedNotes, chordDetectSelectedCandidate?.rootPc ?? chordRootPc, maxFret);
+      return manualVoicing?.frets ? `${positions} · ${manualVoicing.frets}` : positions;
+    },
+    [chordDetectSelectedNotes, chordDetectSelectedCandidate, chordRootPc, maxFret]
   );
 
   const chordDetectSelectedCandidateNotesText = useMemo(() => {
@@ -9383,13 +9514,14 @@ export default function FretboardScalesPage() {
     () => buildChordBadgeItems({
       notes: spellChordNotes({ rootPc: chordRootPc, chordIntervals, preferSharps: chordPreferSharps }),
       intervals: chordIntervals,
+      degreeLabels: chordDegreeLabels,
       ext6: chordExt6,
       ext9: chordExt9,
       ext11: chordExt11,
       ext13: chordExt13,
       structure: chordStructure,
     }),
-    [chordRootPc, chordIntervals, chordPreferSharps, chordExt6, chordExt9, chordExt11, chordExt13, chordStructure]
+    [chordRootPc, chordIntervals, chordDegreeLabels, chordPreferSharps, chordExt6, chordExt9, chordExt11, chordExt13, chordStructure]
   );
 
   const chordHeaderBassNote = useMemo(() => {
@@ -9926,7 +10058,7 @@ export default function FretboardScalesPage() {
           ext13: chordExt13,
         }),
         notes: mainSpelledNotes,
-        intervals: mainIntervals.map((i) => intervalToChordToken(i, { ext6: chordExt6, ext9: chordExt9 && chordStructure !== "triad", ext11: chordExt11 && chordStructure !== "triad", ext13: chordExt13 && chordStructure !== "triad" })),
+        intervals: chordDegreeLabels || mainIntervals.map((i) => intervalToChordToken(i, { ext6: chordExt6, ext9: chordExt9 && chordStructure !== "triad", ext11: chordExt11 && chordStructure !== "triad", ext13: chordExt13 && chordStructure !== "triad" })),
         plan: chordEnginePlan,
         voicing: activeChordVoicing,
         positionForm: chordPositionForm,
@@ -9977,7 +10109,7 @@ export default function FretboardScalesPage() {
       bassName: voicing ? pcToName(voicing.bassPc, pref) : pcToName(mod12((slot?.rootPc || 0) + (plan?.bassInterval || 0)), pref),
       inversionLabel: CHORD_INVERSIONS.find((x) => x.value === (slot?.inversion || "root"))?.label || "Fundamental",
     };
-  }, [studyTarget, chordDetectMode, chordDetectSelectedCandidate, chordDetectSelectedNotes, chordFamily, chordRootPc, chordPreferSharps, chordQuality, chordSuspension, chordStructure, chordExt7, chordExt6, chordExt9, chordExt11, chordExt13, chordIntervals, chordEnginePlan, activeChordVoicing, chordBassPc, chordInversion, maxFret, chordQuartalPitchSets, activeQuartalVoicing, chordQuartalCurrentRootPc, chordQuartalDisplayName, chordQuartalSpread, chordQuartalType, chordQuartalReference, guideToneDef, activeGuideToneVoicing, guideToneDisplayName, guideToneForm, guideToneInversion, guideToneQuality, guideToneBassNote, nearSlots, nearComputed]);
+  }, [studyTarget, chordDetectMode, chordDetectSelectedCandidate, chordDetectSelectedNotes, chordFamily, chordRootPc, chordPreferSharps, chordQuality, chordSuspension, chordStructure, chordExt7, chordExt6, chordExt9, chordExt11, chordExt13, chordIntervals, chordDegreeLabels, chordEnginePlan, activeChordVoicing, chordBassPc, chordInversion, maxFret, chordQuartalPitchSets, activeQuartalVoicing, chordQuartalCurrentRootPc, chordQuartalDisplayName, chordQuartalSpread, chordQuartalType, chordQuartalReference, guideToneDef, activeGuideToneVoicing, guideToneDisplayName, guideToneForm, guideToneInversion, guideToneQuality, guideToneBassNote, nearSlots, nearComputed]);
 
   // --------------------------------------------------------------------------
   // COMPONENTES UI INTERNOS: PANEL DE ESTUDIO
@@ -10997,7 +11129,10 @@ export default function FretboardScalesPage() {
 
   function labelForChordPc(pc) {
     const interval = mod12(pc - chordRootPc);
-    const itv = intervalToChordToken(interval, { ext6: chordExt6, ext9: chordExt9 && chordStructure !== "triad", ext11: chordExt11 && chordStructure !== "triad", ext13: chordExt13 && chordStructure !== "triad" });
+    const idx = chordIntervals.findIndex((x) => mod12(x) === interval);
+    const itv = idx >= 0 && chordDegreeLabels?.[idx]
+      ? chordDegreeLabels[idx]
+      : intervalToChordToken(interval, { ext6: chordExt6, ext9: chordExt9 && chordStructure !== "triad", ext11: chordExt11 && chordStructure !== "triad", ext13: chordExt13 && chordStructure !== "triad" });
     const note = chordPcToSpelledName(pc);
 
     const showI = !!showIntervalsLabel;
@@ -11628,7 +11763,7 @@ function ChordFretboard({
                   ) : fret === 0 && mutedStrings.has(sIdx) ? (
                     <span className="text-xs font-semibold text-slate-400">X</span>
                   ) : showNonScale ? (
-                    <div className="text-[10px] text-slate-400">{labelForCellAt(sIdx, fret)}</div>
+                    <div className="text-[10px] text-slate-400">{labelForPc(mod12(STRINGS[sIdx].pc + fret))}</div>
                   ) : null}
                 </div>
               );
