@@ -1016,7 +1016,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "3.13";
+const APP_VERSION = "3.14";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -3699,6 +3699,108 @@ function analyzeDetectedChordCandidates(selectedNotes) {
     return a.name.localeCompare(b.name, "es", { sensitivity: "base" });
   });
   return filtered.slice(0, 12);
+}
+
+function detectedCandidateSetDifference(aValues, bValues, normalize = (x) => x) {
+  const a = new Set((Array.isArray(aValues) ? aValues : []).map((x) => normalize(x)));
+  const b = new Set((Array.isArray(bValues) ? bValues : []).map((x) => normalize(x)));
+  const union = new Set([...a, ...b]);
+  let diff = 0;
+  union.forEach((value) => {
+    if (a.has(value) !== b.has(value)) diff += 1;
+  });
+  return diff;
+}
+
+function detectedCandidateRootName(candidate) {
+  if (!candidate) return "";
+  return pcToName(candidate.rootPc, !!candidate.preferSharps);
+}
+
+function detectedCandidateBassName(candidate) {
+  if (!candidate) return "";
+  const bassInterval = candidate.externalBassInterval != null
+    ? mod12(candidate.externalBassInterval)
+    : mod12(candidate.bassPc - candidate.rootPc);
+  return spellNoteFromChordInterval(candidate.rootPc, bassInterval, !!candidate.preferSharps);
+}
+
+function buildDetectedCandidateContinuityScore(reference, candidate) {
+  if (!candidate) return Number.POSITIVE_INFINITY;
+  if (reference?.id && candidate?.id === reference.id) return -1;
+  const fallbackScore = candidate.rankScore ?? candidate.probabilityScore ?? candidate.score ?? 999;
+  if (!reference) return fallbackScore;
+
+  let score = 0;
+
+  if (candidate.rootPc !== reference.rootPc) score += 120;
+  if (candidate.bassPc !== reference.bassPc) score += 80;
+  if (!!candidate.formula?.quartal !== !!reference.formula?.quartal) score += 100;
+  if ((candidate.formula?.quartalType || "") !== (reference.formula?.quartalType || "")) score += 14;
+  if (!!candidate.formula?.allowDyad !== !!reference.formula?.allowDyad) score += 28;
+  if (!!candidate.exact !== !!reference.exact) score += 8;
+  if (!!candidate.preferSharps !== !!reference.preferSharps) score += 34;
+
+  const referenceRootName = detectedCandidateRootName(reference);
+  const candidateRootName = detectedCandidateRootName(candidate);
+  if (referenceRootName && candidateRootName && referenceRootName !== candidateRootName) score += 40;
+
+  const referenceBassName = detectedCandidateBassName(reference);
+  const candidateBassName = detectedCandidateBassName(candidate);
+  if (referenceBassName && candidateBassName && referenceBassName !== candidateBassName) score += 24;
+
+  score += detectedCandidateSetDifference(reference.formula?.intervals, candidate.formula?.intervals, mod12) * 10;
+  score += detectedCandidateSetDifference(reference.visibleIntervals, candidate.visibleIntervals, mod12) * 12;
+  score += detectedCandidateSetDifference(reference.missingLabels, candidate.missingLabels, (x) => String(x || "")) * 18;
+
+  const referenceRank = reference.rankScore ?? reference.probabilityScore ?? reference.score ?? fallbackScore;
+  score += Math.abs(fallbackScore - referenceRank) * 0.15;
+  score += fallbackScore * 0.01;
+
+  return Number(score.toFixed(2));
+}
+
+function pickClosestDetectedCandidate(reference, candidates) {
+  const list = Array.isArray(candidates) ? candidates : [];
+  if (!list.length) return null;
+  if (!reference) return list[0] || null;
+
+  let best = list[0] || null;
+  let bestScore = buildDetectedCandidateContinuityScore(reference, best);
+
+  for (let i = 1; i < list.length; i++) {
+    const candidate = list[i];
+    const score = buildDetectedCandidateContinuityScore(reference, candidate);
+    if (score < bestScore) {
+      best = candidate;
+      bestScore = score;
+      continue;
+    }
+    if (score > bestScore) continue;
+
+    const candidateRank = candidate?.rankScore ?? candidate?.probabilityScore ?? candidate?.score ?? 999;
+    const bestRank = best?.rankScore ?? best?.probabilityScore ?? best?.score ?? 999;
+    if (candidateRank < bestRank) {
+      best = candidate;
+      bestScore = score;
+      continue;
+    }
+    if (candidateRank > bestRank) continue;
+
+    if ((candidate?.score ?? 999) < (best?.score ?? 999)) {
+      best = candidate;
+      bestScore = score;
+      continue;
+    }
+    if ((candidate?.score ?? 999) > (best?.score ?? 999)) continue;
+
+    if (String(candidate?.name || "").localeCompare(String(best?.name || ""), "es", { sensitivity: "base" }) < 0) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+
+  return best;
 }
 
 function spellNoteFromChordInterval(rootPc, interval, preferSharps) {
@@ -7688,6 +7790,7 @@ export default function FretboardScalesPage() {
   const [chordDetectClickAudio, setChordDetectClickAudio] = useState(false);
   const [chordDetectSelectedKeys, setChordDetectSelectedKeys] = useState([]);
   const [chordDetectCandidateId, setChordDetectCandidateId] = useState(null);
+  const lastChordDetectCandidateRef = useRef(null);
 
 
 
@@ -9297,6 +9400,12 @@ export default function FretboardScalesPage() {
   );
 
   useEffect(() => {
+    if (chordDetectSelectedCandidate) {
+      lastChordDetectCandidateRef.current = chordDetectSelectedCandidate;
+    }
+  }, [chordDetectSelectedCandidate]);
+
+  useEffect(() => {
     if (!chordDetectMode) return;
     if (!chordDetectCandidates.length) {
       if (chordDetectCandidateId !== null) setChordDetectCandidateId(null);
@@ -9309,7 +9418,8 @@ export default function FretboardScalesPage() {
 
   useEffect(() => {
     if (!chordDetectMode) return;
-    const nextId = chordDetectCandidates[0]?.id || null;
+    const referenceCandidate = chordDetectSelectedCandidate || lastChordDetectCandidateRef.current || null;
+    const nextId = pickClosestDetectedCandidate(referenceCandidate, chordDetectCandidates)?.id || null;
     if ((chordDetectCandidateId || null) !== nextId) {
       setChordDetectCandidateId(nextId);
     }
