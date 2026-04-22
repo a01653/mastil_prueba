@@ -44,9 +44,16 @@ const MOBILE_SECTION_OPTIONS = [
   { value: "route", label: "Ruta" },
   { value: "chords", label: "Acordes" },
   { value: "nearChords", label: "Acordes cercanos" },
-  { value: "configuration", label: "Configuración" },
+];
+const MOBILE_BOTTOM_NAV_OPTIONS = [
+  { value: "scale", label: "Escala" },
+  { value: "patterns", label: "Patrones" },
+  { value: "route", label: "Ruta" },
+  { value: "chords", label: "Acordes" },
+  { value: "nearChords", label: "Cercanos" },
 ];
 const PRIMARY_BOARD_SECTIONS = ["scale", "patterns", "route", "chords", "nearChords"];
+const TONAL_CONTEXT_TOOLTIP = "Afecta a Escala, Patrones, Ruta y al contexto armónico usado en análisis y acordes cercanos.";
 
 function normalizeBoardVisibility(value = {}, preferredPrimary = null) {
   const next = {
@@ -223,7 +230,9 @@ const PanelBlock = React.forwardRef(function PanelBlock({
   level = "section",
   title,
   description = null,
+  titleTooltip = "",
   headerAside = null,
+  disabledHeader = false,
   className = "",
   headerClassName = "",
   bodyClassName = "",
@@ -232,20 +241,22 @@ const PanelBlock = React.forwardRef(function PanelBlock({
 }, ref) {
   const Tag = as;
   const headerStyle = {
-    backgroundColor: level === "subsection"
-      ? "var(--subsection-header-bg, #ebf2fa)"
+    backgroundColor: disabledHeader
+      ? "#f0f0f0"
+      : level === "subsection"
+        ? "var(--subsection-header-bg, #ebf2fa)"
       : "var(--section-header-bg, #c7d8e5)",
   };
 
   return (
     <Tag ref={ref} className={`${UI_SECTION_PANEL} ${className}`.trim()} {...rest}>
       <div
-        className={`flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-3 py-3 ${headerClassName}`.trim()}
+        className={`flex flex-wrap items-start justify-between gap-2 border-b border-slate-200 px-3 py-2 ${headerClassName}`.trim()}
         style={headerStyle}
       >
         <div className="min-w-0 flex-1">
-          {title ? <div className={`${level === "section" ? "text-base" : "text-sm"} font-semibold text-slate-800`}>{title}</div> : null}
-          {description ? <div className="mt-1 text-xs text-slate-600">{description}</div> : null}
+          {title ? <div className={`${level === "section" ? "text-base" : "text-sm"} font-semibold text-slate-800`} title={titleTooltip || undefined}>{title}</div> : null}
+          {description ? <div className="mt-0.5 text-xs text-slate-600">{description}</div> : null}
         </div>
         {headerAside ? <div className="min-w-0 shrink-0">{headerAside}</div> : null}
       </div>
@@ -1080,7 +1091,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "3.16";
+const APP_VERSION = "3.17";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -7881,6 +7892,7 @@ export default function FretboardScalesPage() {
   const [isMobileLayout, setIsMobileLayout] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileActiveSection, setMobileActiveSection] = useState("chords");
+  const [mobileTonalContextOpen, setMobileTonalContextOpen] = useState(false);
   const [showKingBoxes, setShowKingBoxes] = useState(false);
   const [kingBoxMode, setKingBoxMode] = useState("bb");
   const [kingBoxColors, setKingBoxColors] = useState({
@@ -7948,6 +7960,7 @@ export default function FretboardScalesPage() {
   useEffect(() => {
     if (!isMobileLayout) {
       setMobileMenuOpen(false);
+      setMobileTonalContextOpen(false);
       return;
     }
     const firstVisible = MOBILE_SECTION_OPTIONS.find((option) => showBoards[option.value])?.value || "chords";
@@ -8262,6 +8275,7 @@ export default function FretboardScalesPage() {
   const [themeObjectBg, setThemeObjectBg] = useState("#ebf2fa");
   const [themeSectionHeaderBg, setThemeSectionHeaderBg] = useState("#c7d8e5");
   const [themeElementBg, setThemeElementBg] = useState("#ffffff");
+  const [themeDisabledControlBg, setThemeDisabledControlBg] = useState("#f0f0f0");
 
   // --------------------------------------------------------------------------
   // PERSISTENCIA / EXPORTACIÓN / PRESETS
@@ -8347,6 +8361,7 @@ export default function FretboardScalesPage() {
     themeObjectBg,
     themeSectionHeaderBg,
     themeElementBg,
+    themeDisabledControlBg,
   }), [
     accMode,
     showIntervalsLabel,
@@ -8417,6 +8432,7 @@ export default function FretboardScalesPage() {
     themeObjectBg,
     themeSectionHeaderBg,
     themeElementBg,
+    themeDisabledControlBg,
   ]);
 
   const persistedUiPayload = useMemo(() => ({
@@ -8597,6 +8613,7 @@ export default function FretboardScalesPage() {
       if ("themeObjectBg" in saved) setThemeObjectBg(sanitizeColorValue(saved.themeObjectBg, "#ebf2fa"));
       if ("themeSectionHeaderBg" in saved) setThemeSectionHeaderBg(sanitizeColorValue(saved.themeSectionHeaderBg, "#c7d8e5"));
       if ("themeElementBg" in saved) setThemeElementBg(sanitizeColorValue(saved.themeElementBg, "#ffffff"));
+      if ("themeDisabledControlBg" in saved) setThemeDisabledControlBg(sanitizeColorValue(saved.themeDisabledControlBg, "#f0f0f0"));
     } catch {
       setConfigNotice({ type: "error", text: "Configuración guardada inválida. Se usaron valores seguros." });
     } finally {
@@ -11884,7 +11901,7 @@ export default function FretboardScalesPage() {
         type="button"
         onClick={onClick}
         title={title || fallbackTitle}
-        className={`rounded-xl px-2 py-1.5 text-sm ring-1 ring-slate-200 shadow-sm ${active ? "bg-[#71a3c1] text-slate-900" : "bg-white"}`}
+        className={`rounded-xl px-2 py-1.5 text-sm ring-1 ring-slate-200 shadow-sm ${active ? "bg-[#71a3c1] text-slate-900" : "bg-white text-slate-700 hover:bg-sky-50 hover:text-slate-900"}`}
       >
         {children}
       </button>
@@ -13175,9 +13192,9 @@ function ChordFretboard({
   const wrap = "mx-auto w-full max-w-[1500px] p-3 xl:min-w-[1500px]";
 
   // UI compacto (especialmente para Acordes)
-  const UI_SELECT_SM = "h-7 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
-  const UI_SELECT_SM_TONE = "h-7 w-[60px] rounded-xl border border-slate-200 bg-white px-1 text-xs shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
-  const UI_SELECT_SM_AUTO = "h-7 rounded-xl border border-slate-200 bg-white px-2 text-xs shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
+  const UI_SELECT_SM = "h-7 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs shadow-sm hover:bg-sky-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
+  const UI_SELECT_SM_TONE = "h-7 w-[60px] rounded-xl border border-slate-200 bg-white px-1 text-xs shadow-sm hover:bg-sky-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
+  const UI_SELECT_SM_AUTO = "h-7 rounded-xl border border-slate-200 bg-white px-2 text-xs shadow-sm hover:bg-sky-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
   const fnMaxLabelCh = (items, fallback = 8) => {
     const maxLen = (items || []).reduce((acc, item) => {
       const label = typeof item === "string" ? item : (item?.label ?? item?.value ?? "");
@@ -13191,7 +13208,7 @@ function ChordFretboard({
   const chordFormSelectWidth = fnMaxLabelCh(CHORD_FORMS, 10);
   const chordInversionSelectWidth = fnMaxLabelCh(CHORD_INVERSIONS, 10);
   const UI_BTN_SM = "h-7 w-7 rounded-xl border border-slate-200 bg-white text-xs font-semibold shadow-sm hover:bg-sky-50 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed";
-  const UI_INPUT_SM = "h-7 rounded-xl border border-slate-200 bg-white px-2 text-xs shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
+  const UI_INPUT_SM = "h-7 rounded-xl border border-slate-200 bg-white px-2 text-xs shadow-sm hover:bg-sky-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
   const UI_LABEL_SM = "block text-[11px] font-semibold text-slate-700";
   const UI_HELP_SM = "text-[11px] text-slate-500";
   const UI_EXT_GRID = "mt-1 grid grid-cols-3 gap-x-3 gap-y-1 text-xs";
@@ -13213,7 +13230,7 @@ function ChordFretboard({
         route: mobileActiveSection === "route",
         chords: mobileActiveSection === "chords",
         nearChords: mobileActiveSection === "nearChords",
-        configuration: mobileActiveSection === "configuration",
+        configuration: mobileMenuOpen,
       }
     : showBoards;
 
@@ -13225,6 +13242,8 @@ function ChordFretboard({
   const tonalContextSummary = `${pcToName(rootPc, preferSharps)} ${scaleName} · armonización ${harmonyMode === "functional_minor" ? "funcional menor" : "diatónica"}`;
   const themeSoftBg = themeObjectBg;
   const themeHoverBg = themeObjectBg;
+  const themeDisabledControlText = isDark(themeDisabledControlBg) ? "#f8fafc" : "#64748b";
+  const themeDisabledControlBorder = isDark(themeDisabledControlBg) ? "#475569" : "#cbd5e1";
   const appThemeStyle = {
     backgroundColor: themePageBg,
     "--panel-bg": themeElementBg,
@@ -13232,12 +13251,15 @@ function ChordFretboard({
     "--panel-hover-bg": themeHoverBg,
     "--section-header-bg": themeSectionHeaderBg,
     "--subsection-header-bg": themeObjectBg,
+    "--control-disabled-bg": themeDisabledControlBg,
+    "--control-disabled-text": themeDisabledControlText,
+    "--control-disabled-border": themeDisabledControlBorder,
   };
 
   function selectBoardView(section) {
     if (isMobileLayout) {
       setMobileActiveSection(section);
-      setMobileMenuOpen(section === "configuration");
+      setMobileMenuOpen(false);
       return;
     }
     if (section === "configuration") {
@@ -13249,7 +13271,7 @@ function ChordFretboard({
 
   function openTonalContextEditor() {
     if (isMobileLayout) {
-      setMobileMenuOpen(true);
+      setMobileTonalContextOpen(true);
       return;
     }
     tonalContextRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -13333,6 +13355,224 @@ function ChordFretboard({
     );
   }
 
+  function renderTonalContextFields() {
+    return (
+      <>
+        <div className="flex flex-wrap items-end gap-3 xl:flex-nowrap">
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className={UI_LABEL_SM}>Nota raíz</label>
+              <div className="mt-1 flex items-center gap-1.5">
+                <select
+                  className={UI_SELECT_SM_TONE}
+                  value={scaleRootLetter}
+                  onChange={(e) => {
+                    const letter = e.target.value;
+                    if (!Object.prototype.hasOwnProperty.call(NATURAL_PC, letter)) return;
+                    setScaleRootLetter(letter);
+                    setScaleRootAcc(null);
+                    setRootPc(mod12(NATURAL_PC[letter]));
+                  }}
+                  title="Tónica (letra)"
+                >
+                  {LETTERS.map((l) => (
+                    <option key={l} value={l}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  className={`${UI_BTN_SM} ${scaleRootAcc === "flat" ? "!bg-[#71a3c1] !text-slate-900 !border-[#71a3c1]" : ""}`}
+                  title="Bajar 1 semitono (b). Si ya está alterado, vuelve a natural."
+                  onClick={() => {
+                    const nat = mod12(NATURAL_PC[scaleRootLetter]);
+                    if (scaleRootAcc === "flat") {
+                      setScaleRootAcc(null);
+                      setRootPc(nat);
+                      return;
+                    }
+                    setScaleRootAcc("flat");
+                    setRootPc(mod12(nat - 1));
+                  }}
+                >
+                  b
+                </button>
+
+                <button
+                  type="button"
+                  className={`${UI_BTN_SM} ${scaleRootAcc === "sharp" ? "!bg-[#71a3c1] !text-slate-900 !border-[#71a3c1]" : ""}`}
+                  title="Subir 1 semitono (#). Si ya está alterado, vuelve a natural."
+                  onClick={() => {
+                    const nat = mod12(NATURAL_PC[scaleRootLetter]);
+                    if (scaleRootAcc === "sharp") {
+                      setScaleRootAcc(null);
+                      setRootPc(nat);
+                      return;
+                    }
+                    setScaleRootAcc("sharp");
+                    setRootPc(mod12(nat + 1));
+                  }}
+                >
+                  #
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <div className={UI_LABEL_SM}>Notación</div>
+              <div className="mt-1 flex gap-1.5">
+                <ToggleButton
+                  active={accMode === "auto"}
+                  onClick={() => setAccMode("auto")}
+                  title="Auto usa la armadura esperada; por ejemplo, en F mayor usa Bb, no A#."
+                >
+                  Auto
+                </ToggleButton>
+                <ToggleButton active={accMode === "sharps"} onClick={() => setAccMode("sharps")} title="Forzar sostenidos">
+                  #
+                </ToggleButton>
+                <ToggleButton active={accMode === "flats"} onClick={() => setAccMode("flats")} title="Forzar bemoles">
+                  b
+                </ToggleButton>
+              </div>
+            </div>
+          </div>
+
+          <div className="min-w-0">
+            <label className={UI_LABEL_SM}>Escala</label>
+            <select
+              className={UI_SELECT_SM_AUTO + " mt-1 w-full sm:w-auto"}
+              style={{ width: scaleSelectWidth }}
+              value={scaleName}
+              onChange={(e) => setScaleName(e.target.value)}
+              title="Selecciona una escala/preset"
+            >
+              {scaleOptions.map((s) => (
+                <option key={s} value={s}>
+                  {scaleOptionLabel(s)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="min-w-0">
+            <label className={UI_LABEL_SM}>Armonización</label>
+            <select
+              className={UI_SELECT_SM_AUTO + " mt-1 w-full sm:w-auto"}
+              style={{ width: harmonyModeSelectWidth }}
+              value={harmonyMode}
+              onChange={(e) => setHarmonyMode(e.target.value)}
+              title="Define si la armonización es diatónica o funcional menor (V7 en escalas menores)"
+            >
+              <option value="diatonic">Diatónica</option>
+              <option value="functional_minor">Funcional menor (V7)</option>
+            </select>
+          </div>
+
+          <div className="min-w-0">
+            <div className={UI_LABEL_SM}>Notas extra</div>
+            <div className="mt-1 flex items-center gap-2">
+              <input
+                className={UI_INPUT_SM + " w-28"}
+                value={extraInput}
+                onChange={(e) => setExtraInput(e.target.value)}
+                placeholder="Ej: b2"
+                title="Notas/intervalos a resaltar como extra"
+              />
+              <ToggleButton active={showExtra} onClick={() => setShowExtra((v) => !v)} title="Activa/desactiva las notas extra">
+                {showExtra ? "Extra ON" : "Extra OFF"}
+              </ToggleButton>
+            </div>
+          </div>
+        </div>
+
+        {scaleName === "Personalizada" ? (
+          <div className="mt-3">
+            <div className={UI_LABEL_SM}>Intervalos personalizados</div>
+            <input
+              className={UI_INPUT_SM + " mt-1 w-full"}
+              value={customInput}
+              onChange={(e) => setCustomInput(e.target.value)}
+              placeholder="Ej: 1 b3 5 6"
+              title="Introduce intervalos (1–7 con b/#), notas (F, Ab, C#) o semitonos (s3)"
+            />
+          </div>
+        ) : null}
+
+        <div className="mt-3">
+          <div className="mt-1 text-xs text-slate-600"><b>Grados:</b> {scaleTetradDegreesText}</div>
+          <div className="mt-0.5 text-xs text-slate-600"><b>Notas:</b> {scaleTetradNotesText}</div>
+        </div>
+
+        {isKingBoxEligibleScale ? (
+          <div className="mt-3">
+            <div className="min-w-0 xl:min-w-[760px]">
+              <div className={UI_LABEL_SM}>Casitas blues</div>
+              <div className="mt-1 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-sky-50 px-2 py-2 text-xs text-slate-700">
+                <label className="inline-flex items-center gap-2 font-semibold text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={showKingBoxes}
+                    onChange={(e) => setShowKingBoxes(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  Mostrar
+                </label>
+                <select
+                  className={UI_SELECT_SM.replace("w-full", "") + " w-40"}
+                  value={kingBoxMode}
+                  onChange={(e) => setKingBoxMode(e.target.value)}
+                  disabled={!showKingBoxes}
+                  title="Elige la casita a resaltar"
+                >
+                  <option value="bb">B.B. King</option>
+                  <option value="albert">Albert King</option>
+                  <option value="both">Ambas</option>
+                </select>
+                <label className="inline-flex items-center gap-2">
+                  <span>{KING_BOX_DEFAULTS.bb.label}</span>
+                  <input
+                    type="color"
+                    value={kingBoxColors.bb}
+                    onChange={(e) => setKingBoxColors((prev) => ({ ...prev, bb: e.target.value }))}
+                    className="h-7 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
+                    title="Color del borde de B.B. King"
+                  />
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <span>{KING_BOX_DEFAULTS.albert.label}</span>
+                  <input
+                    type="color"
+                    value={kingBoxColors.albert}
+                    onChange={(e) => setKingBoxColors((prev) => ({ ...prev, albert: e.target.value }))}
+                    className="h-7 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
+                    title="Color del borde de Albert King"
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
+  function renderTonalContextPanel(className = "") {
+    return (
+      <PanelBlock
+        ref={tonalContextRef}
+        title="Contexto tonal"
+        titleTooltip={TONAL_CONTEXT_TOOLTIP}
+        headerAside={<div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">{tonalContextSummary}</div>}
+        className={className}
+      >
+        {renderTonalContextFields()}
+      </PanelBlock>
+    );
+  }
+
   return (
     <div className="app-theme min-h-screen overflow-x-auto text-slate-900" style={appThemeStyle}>
       <style>{`
@@ -13340,8 +13580,28 @@ function ChordFretboard({
         .app-theme .bg-sky-50 { background: var(--panel-soft-bg) !important; background-image: none !important; }
         .app-theme .bg-sky-100 { background: var(--panel-soft-bg) !important; background-image: none !important; }
         .app-theme .hover\\:bg-sky-50:hover { background-color: var(--panel-hover-bg) !important; }
+        .app-theme select:disabled,
+        .app-theme textarea:disabled,
+        .app-theme button:disabled,
+        .app-theme input:disabled:not([type="checkbox"]):not([type="radio"]) {
+          background-color: var(--control-disabled-bg) !important;
+          border-color: var(--control-disabled-border) !important;
+          color: var(--control-disabled-text) !important;
+          opacity: 1 !important;
+        }
+        .app-theme select:disabled:hover,
+        .app-theme textarea:disabled:hover,
+        .app-theme button:disabled:hover,
+        .app-theme input:disabled:not([type="checkbox"]):not([type="radio"]):hover {
+          background-color: var(--control-disabled-bg) !important;
+          border-color: var(--control-disabled-border) !important;
+          color: var(--control-disabled-text) !important;
+        }
+        .app-theme input[type="color"]:disabled {
+          cursor: not-allowed;
+        }
       `}</style>
-      <div ref={appRootRef} className={wrap}>
+      <div ref={appRootRef} className={`${wrap} ${isMobileLayout ? "pb-24" : ""}`.trim()}>
         <header className="mb-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -13422,32 +13682,16 @@ function ChordFretboard({
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="text-sm font-semibold text-slate-800">Configuración</div>
-                      <div className="text-xs text-slate-600">Elige una sola vista y ajusta los controles.</div>
+                      <div className="text-xs text-slate-600">Ajustes globales y visuales de la app.</div>
                     </div>
                     <button
                       type="button"
                       className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm"
                       onClick={() => setMobileMenuOpen(false)}
-                      title="Cerrar menú"
+                      title="Cerrar configuración"
                     >
                       <X className="h-4 w-4" />
                     </button>
-                  </div>
-
-                  <div>
-                    <div className="mb-2 text-xs font-semibold text-slate-700">Menu</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {MOBILE_SECTION_OPTIONS.map((option) => (
-                        <button
-                          key={option.value}
-                          type="button"
-                          className={`rounded-xl px-3 py-2 text-sm font-semibold ring-1 ring-slate-200 shadow-sm ${mobileActiveSection === option.value ? "bg-[#71a3c1] text-slate-900" : "bg-white text-slate-700"}`}
-                          onClick={() => selectBoardView(option.value)}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
                   </div>
 
                   <div className="flex items-center gap-2 rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
@@ -13624,6 +13868,21 @@ function ChordFretboard({
                           <span className="text-xs font-semibold text-slate-600">{themeElementBg}</span>
                         </div>
                       </div>
+
+                      <div className="min-w-0">
+                        <label className={UI_LABEL_SM}>Controles deshabilitados</label>
+                        <div className="mt-1 flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={themeDisabledControlBg}
+                            onChange={(e) => setThemeDisabledControlBg(e.target.value)}
+                            title={themeDisabledControlBg}
+                            className="h-8 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
+                          />
+                          <span className="text-xs font-semibold text-slate-600">{themeDisabledControlBg}</span>
+                        </div>
+                      </div>
+
                     </div>
                   </PanelBlock>
 
@@ -13631,214 +13890,27 @@ function ChordFretboard({
                 </PanelBlock>
               ) : null}
 
-              <PanelBlock
-                ref={tonalContextRef}
-                title="Contexto tonal"
-                description="Afecta a Escala, Patrones, Ruta y al contexto armónico usado en análisis y acordes cercanos."
-                headerAside={<div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">{tonalContextSummary}</div>}
-              >
-                <div className="flex flex-wrap items-end gap-3 xl:flex-nowrap">
-                  <div className="flex flex-wrap items-end gap-3">
-                    <div>
-                      <label className={UI_LABEL_SM}>Nota raíz</label>
-                      <div className="mt-1 flex items-center gap-1.5">
-                        <select
-                          className={UI_SELECT_SM_TONE}
-                          value={scaleRootLetter}
-                          onChange={(e) => {
-                            const letter = e.target.value;
-                            if (!Object.prototype.hasOwnProperty.call(NATURAL_PC, letter)) return;
-                            setScaleRootLetter(letter);
-                            setScaleRootAcc(null);
-                            setRootPc(mod12(NATURAL_PC[letter]));
-                          }}
-                          title="Tónica (letra)"
-                        >
-                          {LETTERS.map((l) => (
-                            <option key={l} value={l}>
-                              {l}
-                            </option>
-                          ))}
-                        </select>
-
-                        <button
-                          type="button"
-                          className={`${UI_BTN_SM} ${scaleRootAcc === "flat" ? "!bg-[#71a3c1] !text-slate-900 !border-[#71a3c1]" : ""}`}
-                          title="Bajar 1 semitono (b). Si ya está alterado, vuelve a natural."
-                          onClick={() => {
-                            const nat = mod12(NATURAL_PC[scaleRootLetter]);
-                            if (scaleRootAcc === "flat") {
-                              setScaleRootAcc(null);
-                              setRootPc(nat);
-                              return;
-                            }
-                            setScaleRootAcc("flat");
-                            setRootPc(mod12(nat - 1));
-                          }}
-                        >
-                          b
-                        </button>
-
-                        <button
-                          type="button"
-                          className={`${UI_BTN_SM} ${scaleRootAcc === "sharp" ? "!bg-[#71a3c1] !text-slate-900 !border-[#71a3c1]" : ""}`}
-                          title="Subir 1 semitono (#). Si ya está alterado, vuelve a natural."
-                          onClick={() => {
-                            const nat = mod12(NATURAL_PC[scaleRootLetter]);
-                            if (scaleRootAcc === "sharp") {
-                              setScaleRootAcc(null);
-                              setRootPc(nat);
-                              return;
-                            }
-                            setScaleRootAcc("sharp");
-                            setRootPc(mod12(nat + 1));
-                          }}
-                        >
-                          #
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className={UI_LABEL_SM}>Notación</div>
-                      <div className="mt-1 flex gap-1.5">
-                        <ToggleButton
-                          active={accMode === "auto"}
-                          onClick={() => setAccMode("auto")}
-                          title="Auto usa la armadura esperada; por ejemplo, en F mayor usa Bb, no A#."
-                        >
-                          Auto
-                        </ToggleButton>
-                        <ToggleButton active={accMode === "sharps"} onClick={() => setAccMode("sharps")} title="Forzar sostenidos">
-                          #
-                        </ToggleButton>
-                        <ToggleButton active={accMode === "flats"} onClick={() => setAccMode("flats")} title="Forzar bemoles">
-                          b
-                        </ToggleButton>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="min-w-0">
-                    <label className={UI_LABEL_SM}>Escala</label>
-                    <select
-                      className={UI_SELECT_SM_AUTO + " mt-1 w-full sm:w-auto"}
-                      style={{ width: scaleSelectWidth }}
-                      value={scaleName}
-                      onChange={(e) => setScaleName(e.target.value)}
-                      title="Selecciona una escala/preset"
-                    >
-                      {scaleOptions.map((s) => (
-                        <option key={s} value={s}>
-                          {scaleOptionLabel(s)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="min-w-0">
-                    <label className={UI_LABEL_SM}>Armonización</label>
-                    <select
-                      className={UI_SELECT_SM_AUTO + " mt-1 w-full sm:w-auto"}
-                      style={{ width: harmonyModeSelectWidth }}
-                      value={harmonyMode}
-                      onChange={(e) => setHarmonyMode(e.target.value)}
-                      title="Define si la armonización es diatónica o funcional menor (V7 en escalas menores)"
-                    >
-                      <option value="diatonic">Diatónica</option>
-                      <option value="functional_minor">Funcional menor (V7)</option>
-                    </select>
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className={UI_LABEL_SM}>Notas extra</div>
-                    <div className="mt-1 flex items-center gap-2">
-                      <input
-                        className={UI_INPUT_SM + " w-28"}
-                        value={extraInput}
-                        onChange={(e) => setExtraInput(e.target.value)}
-                        placeholder="Ej: b2"
-                        title="Notas/intervalos a resaltar como extra"
-                      />
-                      <ToggleButton active={showExtra} onClick={() => setShowExtra((v) => !v)} title="Activa/desactiva las notas extra">
-                        {showExtra ? "Extra ON" : "Extra OFF"}
-                      </ToggleButton>
-                    </div>
-                  </div>
-                </div>
-
-                {scaleName === "Personalizada" ? (
-                  <div className="mt-3">
-                    <div className={UI_LABEL_SM}>Intervalos personalizados</div>
-                    <input
-                      className={UI_INPUT_SM + " mt-1 w-full"}
-                      value={customInput}
-                      onChange={(e) => setCustomInput(e.target.value)}
-                      placeholder="Ej: 1 b3 5 6"
-                      title="Introduce intervalos (1–7 con b/#), notas (F, Ab, C#) o semitonos (s3)"
-                    />
-                  </div>
-                ) : null}
-
-                <div className="mt-3">
-                  <div className="mt-1 text-xs text-slate-600"><b>Grados:</b> {scaleTetradDegreesText}</div>
-                  <div className="mt-0.5 text-xs text-slate-600"><b>Notas:</b> {scaleTetradNotesText}</div>
-                </div>
-
-                {isKingBoxEligibleScale ? (
-                  <div className="mt-3">
-                    <div className="min-w-0 xl:min-w-[760px]">
-                      <div className={UI_LABEL_SM}>Casitas blues</div>
-                      <div className="mt-1 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-sky-50 px-2 py-2 text-xs text-slate-700">
-                        <label className="inline-flex items-center gap-2 font-semibold text-slate-700">
-                          <input
-                            type="checkbox"
-                            checked={showKingBoxes}
-                            onChange={(e) => setShowKingBoxes(e.target.checked)}
-                            className="h-4 w-4 rounded border-slate-300"
-                          />
-                          Mostrar
-                        </label>
-                        <select
-                          className={UI_SELECT_SM.replace("w-full", "") + " w-40"}
-                          value={kingBoxMode}
-                          onChange={(e) => setKingBoxMode(e.target.value)}
-                          disabled={!showKingBoxes}
-                          title="Elige la casita a resaltar"
-                        >
-                          <option value="bb">B.B. King</option>
-                          <option value="albert">Albert King</option>
-                          <option value="both">Ambas</option>
-                        </select>
-                        <label className="inline-flex items-center gap-2">
-                          <span>{KING_BOX_DEFAULTS.bb.label}</span>
-                          <input
-                            type="color"
-                            value={kingBoxColors.bb}
-                            onChange={(e) => setKingBoxColors((prev) => ({ ...prev, bb: e.target.value }))}
-                            className="h-7 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
-                            title="Color del borde de B.B. King"
-                          />
-                        </label>
-                        <label className="inline-flex items-center gap-2">
-                          <span>{KING_BOX_DEFAULTS.albert.label}</span>
-                          <input
-                            type="color"
-                            value={kingBoxColors.albert}
-                            onChange={(e) => setKingBoxColors((prev) => ({ ...prev, albert: e.target.value }))}
-                            className="h-7 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
-                            title="Color del borde de Albert King"
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-              </PanelBlock>
+              {!isMobileLayout ? renderTonalContextPanel() : null}
             </div>
 
             {/* MÁSTILES */}
             <div className="space-y-3">
+              {isMobileLayout ? (
+                <button
+                  type="button"
+                  className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm ring-1 ring-slate-200"
+                  onClick={() => setMobileTonalContextOpen(true)}
+                  title={TONAL_CONTEXT_TOOLTIP}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-slate-800" title={TONAL_CONTEXT_TOOLTIP}>Contexto tonal</div>
+                      <div className="mt-1 truncate text-xs font-semibold text-slate-600">{tonalContextSummary}</div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
+                  </div>
+                </button>
+              ) : null}
               {effectiveBoards.scale ? <Fretboard title="Escala" subtitle="Escala + (opcional) extras. Resalta raíz/3ª/5ª." mode="scale" /> : null}
               {effectiveBoards.patterns ? <Fretboard title="Patrones" subtitle="Patrones: 5 boxes (pentatónicas), 7 3NPS (7 notas) y CAGED. Ruta: sigue la escala en orden y se restringe a patrones." mode="patterns" /> : null}
               {effectiveBoards.route ? (
@@ -14779,21 +14851,6 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                     </div>}
                   bodyClassName="space-y-3"
                 >
-
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-                    <div>
-                      <b>Contexto tonal activo:</b> {tonalContextSummary}
-                    </div>
-                    <button
-                      type="button"
-                      className={UI_BTN_SM + " w-auto px-3"}
-                      onClick={openTonalContextEditor}
-                      title="Editar el contexto tonal que usa la escala, la ruta y el contexto armónico"
-                    >
-                      Editar contexto
-                    </button>
-                  </div>
-
                   <div className="text-xs text-slate-600">
                     <b>Posibles tonalidades:</b> {nearTonalityAnalysis.text}
                   </div>
@@ -14844,11 +14901,16 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                           level="subsection"
                           title={`Acorde ${idx + 1}${nearComputed.baseIdx === idx ? " (referencia)" : ""}`}
                           description={`${slotDisplayName} · Notas: ${notes}`}
-                          className={disableAll ? "opacity-80" : ""}
+                          disabledHeader={disableAll}
                           bodyClassName="overflow-x-auto"
                           headerAside={<div className="flex items-center gap-2">
                               <label
-                                className="inline-flex h-7 items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700"
+                                className={`inline-flex h-7 items-center gap-2 rounded-xl border px-2 text-xs font-semibold ${disableAll ? "cursor-not-allowed" : ""}`}
+                                style={disableAll ? {
+                                  backgroundColor: "var(--control-disabled-bg)",
+                                  borderColor: "var(--control-disabled-border)",
+                                  color: "var(--control-disabled-text)",
+                                } : undefined}
                                 title="Permite usar cuerdas al aire como opción de voicing dentro del rango. La distancia se calcula solo con las notas pisadas."
                               >
                                 <span>Permitir cuerdas al aire</span>
@@ -14869,10 +14931,16 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                                   setStudyTarget(String(idx));
                                   setStudyOpen(true);
                                 }}
+                                disabled={disableAll}
                               >
                                 Estudiar
                               </button>
-                              <span className="text-xs font-semibold text-slate-700">Fondo</span>
+                              <span
+                                className="text-xs font-semibold"
+                                style={disableAll ? { color: "var(--control-disabled-text)" } : undefined}
+                              >
+                                Fondo
+                              </span>
                               <input
                                 type="color"
                                 value={nearBgColors[idx]}
@@ -14914,7 +14982,7 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                                 </select>
                                 <button
                                   type="button"
-                                  className={`${UI_BTN_SM} ${(!NATURAL_PCS.has(mod12(slot.rootPc)) && !slot.spellPreferSharps) ? "!bg-[#71a3c1] !text-slate-900 !border-[#71a3c1]" : ""}`}
+                                  className={`${UI_BTN_SM} ${!disableAll && (!NATURAL_PCS.has(mod12(slot.rootPc)) && !slot.spellPreferSharps) ? "!bg-[#71a3c1] !text-slate-900 !border-[#71a3c1]" : ""}`}
                                   title="Bajar 1 semitono"
                                   onClick={() => {
                                     const letter = chordUiLetterFromPc(slot.rootPc, false);
@@ -14930,7 +14998,7 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                                 >b</button>
                                 <button
                                   type="button"
-                                  className={`${UI_BTN_SM} ${(!NATURAL_PCS.has(mod12(slot.rootPc)) && slot.spellPreferSharps) ? "!bg-[#71a3c1] !text-slate-900 !border-[#71a3c1]" : ""}`}
+                                  className={`${UI_BTN_SM} ${!disableAll && (!NATURAL_PCS.has(mod12(slot.rootPc)) && slot.spellPreferSharps) ? "!bg-[#71a3c1] !text-slate-900 !border-[#71a3c1]" : ""}`}
                                   title="Subir 1 semitono"
                                   onClick={() => {
                                     const letter = chordUiLetterFromPc(slot.rootPc, true);
@@ -15150,6 +15218,52 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
           </div>
 
         </div>
+        {isMobileLayout && mobileTonalContextOpen ? (
+          <>
+            <div
+              className="fixed inset-0 z-40 bg-slate-900/35 xl:hidden"
+              onClick={() => setMobileTonalContextOpen(false)}
+            />
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-3 xl:hidden">
+              <div className="w-full max-w-[720px] max-h-[calc(100vh-7rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200">
+                <div className="sticky top-0 flex items-start justify-between gap-3 border-b border-slate-200 bg-[#c7d8e5] px-3 py-3">
+                  <div className="min-w-0">
+                    <div className="text-base font-semibold text-slate-800" title={TONAL_CONTEXT_TOOLTIP}>Contexto tonal</div>
+                    <div className="mt-1 text-xs font-semibold text-slate-600">{tonalContextSummary}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm"
+                    onClick={() => setMobileTonalContextOpen(false)}
+                    title="Cerrar contexto tonal"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="p-3">
+                  {renderTonalContextFields()}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : null}
+        {isMobileLayout ? (
+          <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur xl:hidden">
+            <div className="grid grid-cols-5 gap-2">
+              {MOBILE_BOTTOM_NAV_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`min-h-[52px] rounded-2xl px-2 py-2 text-[11px] font-semibold leading-tight ring-1 ring-slate-200 shadow-sm ${mobileActiveSection === option.value ? "bg-[#71a3c1] text-slate-900" : "bg-white text-slate-700 hover:bg-sky-50 hover:text-slate-900"}`}
+                  onClick={() => selectBoardView(option.value)}
+                  title={option.label}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
               <ManualOverlay />
         <footer className="mt-6 flex items-center justify-between border-t border-slate-200 pt-3 text-xs text-slate-600">
           <span>Creado por: Jesus Quevedo Rodriguez</span>
