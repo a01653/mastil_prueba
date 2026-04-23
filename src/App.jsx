@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
+import { Blocks, ChevronLeft, ChevronRight, HelpCircle, Info, Menu, Music, Route, Settings, Waypoints, X } from "lucide-react";
 
 // Mástil interactivo
 // - Escalas: pentatónicas (mayor/menor), mayor/menor natural, modos
@@ -46,14 +46,51 @@ const MOBILE_SECTION_OPTIONS = [
   { value: "nearChords", label: "Acordes cercanos" },
 ];
 const MOBILE_BOTTOM_NAV_OPTIONS = [
-  { value: "scale", label: "Escala" },
-  { value: "patterns", label: "Patrones" },
-  { value: "route", label: "Ruta" },
-  { value: "chords", label: "Acordes" },
-  { value: "nearChords", label: "Cercanos" },
+  { value: "scale", label: "Escala", icon: Music },
+  { value: "patterns", label: "Patrones", icon: Blocks },
+  { value: "route", label: "Ruta", icon: Route },
+  { value: "chords", label: "Acordes", icon: ChordDiagramIcon },
+  { value: "nearChords", label: "Cercanos", icon: Waypoints },
 ];
+const SCALE_INFO_TEXT = "Escala + (opcional) extras. Resalta raíz/3ª/5ª.";
+const PATTERNS_INFO_TEXT = "Patrones: 5 boxes (pentatónicas), 7 3NPS (7 notas) y CAGED. Ruta: sigue la escala en orden y se restringe a patrones";
+const NEAR_CHORDS_INFO_TEXT = "Selecciona hasta 4 acordes y busca digitaciones dentro de un rango. Ordena por cercanía al primer acorde activo. Los acordes se ajustan automáticamente según la nota raíz y la escala activas.";
+const NEAR_AUTO_SCALE_INFO_TEXT = "Con Auto escala ON, los acordes cercanos se rellenan y actualizan según la nota raíz, la escala y la armonización activas. Con OFF, cada acorde queda bajo edición manual.";
 const PRIMARY_BOARD_SECTIONS = ["scale", "patterns", "route", "chords", "nearChords"];
 const TONAL_CONTEXT_TOOLTIP = "Afecta a Escala, Patrones, Ruta y al contexto armónico usado en análisis y acordes cercanos.";
+const MOBILE_VERTICAL_STRING_ORDER = [5, 4, 3, 2, 1, 0];
+const WEB_FRET_LABEL_COL_PX = 110;
+const WEB_FRET_ZERO_WIDTH_PX = 22;
+const WEB_FRET_CELL_MIN_WIDTH_PX = 60;
+const WEB_FRET_CELL_MAX_WIDTH_PX = 70;
+const WEB_FRET_CELL_HEIGHT_PX = 32;
+const WEB_FRETBOARD_GRID_GAP_PX = 4;
+const PANEL_BODY_PADDING_X_PX = 24;
+const APP_WRAP_PADDING_X_PX = 24;
+const WEB_FRET_LABEL_COL = `${WEB_FRET_LABEL_COL_PX}px`;
+const WEB_FRET_ZERO_WIDTH = `${WEB_FRET_ZERO_WIDTH_PX}px`;
+const WEB_FRET_CELL_WIDTH = `minmax(${WEB_FRET_CELL_MIN_WIDTH_PX}px, ${WEB_FRET_CELL_MAX_WIDTH_PX}px)`;
+const WEB_FRET_CELL_HEIGHT = `${WEB_FRET_CELL_HEIGHT_PX}px`;
+const MOBILE_VERTICAL_STRING_COL_WIDTH = "36px";
+const MOBILE_VERTICAL_FRET_LABEL_COL = "42px";
+const MOBILE_VERTICAL_FRETBOARD_COLS = `repeat(6, ${MOBILE_VERTICAL_STRING_COL_WIDTH})`;
+
+function ChordDiagramIcon({ className = "", ...props }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true" {...props}>
+      <path d="M4.5 4h15" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+      {[5, 8.5, 12, 15.5, 19].map((x) => (
+        <path key={x} d={`M${x} 4.9v15.1`} stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      ))}
+      {[8, 12, 16].map((y) => (
+        <path key={y} d={`M5  ${y}h14`} stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      ))}
+      <circle cx="16.5" cy="7.2" r="1.75" fill="#145bf0" />
+      <circle cx="12" cy="11.2" r="1.75" fill="#145bf0" />
+      <circle cx="8.5" cy="15.2" r="1.75" fill="#145bf0" />
+    </svg>
+  );
+}
 
 function normalizeBoardVisibility(value = {}, preferredPrimary = null) {
   const next = {
@@ -113,6 +150,7 @@ const SCALE_PRESETS = {
   // Otras útiles
   "Pentatónica menor + blue note": [0, 3, 5, 6, 7, 10],
   "Pentatónica mayor + blue note": [0, 2, 3, 4, 7, 9],
+  "Hirajoshi": [0, 2, 3, 7, 8],
   "Tonos enteros": [0, 2, 4, 6, 8, 10],
   "Disminuida (H-W)": [0, 1, 3, 4, 6, 7, 9, 10],
   "Disminuida (W-H)": [0, 2, 3, 5, 6, 8, 9, 11],
@@ -247,11 +285,12 @@ const PanelBlock = React.forwardRef(function PanelBlock({
         ? "var(--subsection-header-bg, #ebf2fa)"
       : "var(--section-header-bg, #c7d8e5)",
   };
+  const headerSizeClass = level === "section" ? "min-h-[48px] items-center" : "min-h-[42px] items-center";
 
   return (
     <Tag ref={ref} className={`${UI_SECTION_PANEL} ${className}`.trim()} {...rest}>
       <div
-        className={`flex flex-wrap items-start justify-between gap-2 border-b border-slate-200 px-3 py-2 ${headerClassName}`.trim()}
+        className={`flex flex-wrap ${headerSizeClass} justify-between gap-2 border-b border-slate-200 px-3 py-2 ${headerClassName}`.trim()}
         style={headerStyle}
       >
         <div className="min-w-0 flex-1">
@@ -288,9 +327,44 @@ const INLAY_DOUBLE = new Set([12, 24]);
 
 // Helper: columnas del grid con traste 0 más estrecho
 function fretGridCols(maxFret) {
-  const fret0 = "22px"; // medio/estrecho
-  const rest = "minmax(36px, 1fr)";
-  return `110px ${fret0} repeat(${maxFret}, ${rest})`;
+  const rest = WEB_FRET_CELL_WIDTH;
+  return `${WEB_FRET_LABEL_COL} ${WEB_FRET_ZERO_WIDTH} repeat(${maxFret}, ${rest})`;
+}
+
+function webFretboardGridWidthPx(maxFret, fretCellWidthPx = WEB_FRET_CELL_MIN_WIDTH_PX) {
+  return WEB_FRET_LABEL_COL_PX + WEB_FRET_ZERO_WIDTH_PX + maxFret * fretCellWidthPx + (maxFret + 1) * WEB_FRETBOARD_GRID_GAP_PX;
+}
+
+function webAppWidthPx(maxFret, fretCellWidthPx = WEB_FRET_CELL_MIN_WIDTH_PX) {
+  return webFretboardGridWidthPx(maxFret, fretCellWidthPx) + PANEL_BODY_PADDING_X_PX + APP_WRAP_PADDING_X_PX;
+}
+
+function mobileVerticalFretGridCols() {
+  return MOBILE_VERTICAL_FRETBOARD_COLS;
+}
+
+function mobileVerticalFretCellClass(fret) {
+  return fret === 0 ? "h-[22px]" : "h-[45px]";
+}
+
+function mobileVerticalOpenNoteClass(fret, isMobileLayout) {
+  return isMobileLayout && fret === 0 ? "h-[22px] w-[36px]" : "h-7 w-7";
+}
+
+function mobileStringHeaderParts(label) {
+  const m = String(label || "").match(/^([^ ]+)\s*\(([^)]+)\)$/);
+  if (!m) return { number: label, openNote: "" };
+  return { number: m[1], openNote: m[2] };
+}
+
+function mobileFretHasInlay(fret) {
+  return INLAY_SINGLE.has(fret) || INLAY_DOUBLE.has(fret);
+}
+
+function mobileInlayGridColumns(fret) {
+  if (INLAY_DOUBLE.has(fret)) return ["2 / 4", "4 / 6"];
+  if (INLAY_SINGLE.has(fret)) return ["3 / 5"];
+  return [];
 }
 
 function hasInlayCell(fret, sIdx) {
@@ -1091,7 +1165,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "3.17";
+const APP_VERSION = "3.19";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -3202,6 +3276,7 @@ const CHORD_DETECT_FORMULAS = [
   // Lecturas extendidas habituales en voicings reales, donde a menudo se omite la 5ª o incluso la 3ª.
   { id: "maj13omit5", intervals: [0, 2, 4, 9, 11], degreeLabels: ["1", "9", "3", "13", "7"], suffix: "maj13", ui: null, manualOnly: true },
   { id: "9", intervals: [0, 2, 4, 7, 10], degreeLabels: ["1", "9", "3", "5", "b7"], suffix: "9", ui: { quality: "dom", suspension: "none", structure: "chord", inversion: "all", form: "open", positionForm: "open", ext7: true, ext6: false, ext9: true, ext11: false, ext13: false } },
+  { id: "7sharp9", intervals: [0, 3, 4, 7, 10], degreeLabels: ["1", "#9", "3", "5", "b7"], suffix: "7(#9)", ui: null, manualOnly: true },
   { id: "m9", intervals: [0, 2, 3, 7, 10], degreeLabels: ["1", "9", "b3", "5", "b7"], suffix: "m9", ui: { quality: "min", suspension: "none", structure: "chord", inversion: "all", form: "open", positionForm: "open", ext7: true, ext6: false, ext9: true, ext11: false, ext13: false } },
   { id: "m7flat13", intervals: [0, 3, 7, 8, 10], degreeLabels: ["1", "b3", "5", "b13", "b7"], suffix: "m7(b13)", ui: null, manualOnly: true },
   { id: "m7no5addb13", intervals: [0, 3, 8, 10], degreeLabels: ["1", "b3", "b13", "b7"], suffix: "m7(no5)(b13)", ui: null, manualOnly: true },
@@ -3422,7 +3497,7 @@ function candidateFormulaComplexityPenalty(candidate) {
   if (["maj", "min", "sus2", "sus4"].includes(id)) return 0;
   if (["6", "m6", "add9", "madd9", "add11", "madd11", "sus2add13no5"].includes(id)) return 2;
   if (["maj7", "7", "m7", "m7b5", "dim7"].includes(id)) return 4;
-  if (["maj9", "9", "m9"].includes(id)) return 6;
+  if (["maj9", "9", "m9", "7sharp9"].includes(id)) return 6;
   if (["m7flat13", "m7no5addb13"].includes(id)) return 8;
   if (["maj7add13", "maj7add13omit5", "maj13", "maj13omit5"].includes(id)) return 8;
   if (["m11flat13", "m11flat13omit3"].includes(id)) return 10;
@@ -7858,6 +7933,8 @@ export default function FretboardScalesPage() {
   const [manualOpen, setManualOpen] = useState(false);
   const [studyOpen, setStudyOpen] = useState(false);
   const [studyTarget, setStudyTarget] = useState("main");
+  const [mobileInfoPopover, setMobileInfoPopover] = useState(null);
+  const mobileInfoPopoverOpen = !!mobileInfoPopover;
 
   // Notación (auto / override)
   // --------------------------------------------------------------------------
@@ -7868,15 +7945,16 @@ export default function FretboardScalesPage() {
   // Vista (pueden coexistir)
   const [showIntervalsLabel, setShowIntervalsLabel] = useState(true);
   const [showNotesLabel, setShowNotesLabel] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
 
   const [rootPc, setRootPc] = useState(5); // F
   const [scaleRootLetter, setScaleRootLetter] = useState("F");
   const [scaleRootAcc, setScaleRootAcc] = useState(null); // null | "flat" | "sharp"
   const [scaleName, setScaleName] = useState("Mayor");
   const [harmonyMode, setHarmonyMode] = useState("diatonic");
-  const isPentatonicScale = scaleName === "Pentatónica mayor" || scaleName === "Pentatónica menor";
+  const isNamedPentatonicScale = scaleName === "Pentatónica mayor" || scaleName === "Pentatónica menor";
   const isBluesScale = scaleName === "Pentatónica menor + blue note" || scaleName === "Pentatónica mayor + blue note";
-  const isKingBoxEligibleScale = isPentatonicScale || isBluesScale;
+  const isKingBoxEligibleScale = isNamedPentatonicScale || isBluesScale;
   const [maxFret, setMaxFret] = useState(15);
 
   const [showNonScale, setShowNonScale] = useState(false);
@@ -7961,11 +8039,57 @@ export default function FretboardScalesPage() {
     if (!isMobileLayout) {
       setMobileMenuOpen(false);
       setMobileTonalContextOpen(false);
+      setMobileInfoPopover(null);
       return;
     }
     const firstVisible = MOBILE_SECTION_OPTIONS.find((option) => showBoards[option.value])?.value || "chords";
     setMobileActiveSection(firstVisible);
   }, [isMobileLayout]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return undefined;
+    if (!isMobileLayout || !mobileInfoPopoverOpen) return undefined;
+
+    const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    const body = document.body;
+    const html = document.documentElement;
+    const prevBody = {
+      overflow: body.style.overflow,
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+      touchAction: body.style.touchAction,
+    };
+    const prevHtml = {
+      overflow: html.style.overflow,
+      overscrollBehavior: html.style.overscrollBehavior,
+    };
+
+    html.style.overflow = "hidden";
+    html.style.overscrollBehavior = "none";
+    body.style.overflow = "hidden";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    body.style.touchAction = "none";
+
+    return () => {
+      html.style.overflow = prevHtml.overflow;
+      html.style.overscrollBehavior = prevHtml.overscrollBehavior;
+      body.style.overflow = prevBody.overflow;
+      body.style.position = prevBody.position;
+      body.style.top = prevBody.top;
+      body.style.left = prevBody.left;
+      body.style.right = prevBody.right;
+      body.style.width = prevBody.width;
+      body.style.touchAction = prevBody.touchAction;
+      window.scrollTo(0, scrollY);
+    };
+  }, [isMobileLayout, mobileInfoPopoverOpen]);
 
 
   // --------------------------------------------------------------------------
@@ -8769,6 +8893,7 @@ export default function FretboardScalesPage() {
   // --------------------------------------------------------------------------
 
   const scaleIntervals = useMemo(() => buildScaleIntervals(scaleName, customInput, rootPc), [scaleName, customInput, rootPc]);
+  const usesFiveNoteBoxPatterns = scaleIntervals.length === 5;
   const scaleIntervalLabels = useMemo(() => buildScaleIntervalLabels(scaleName, scaleIntervals), [scaleName, scaleIntervals]);
 
   useEffect(() => {
@@ -8786,10 +8911,10 @@ export default function FretboardScalesPage() {
 
   // Ajuste lógico de modos según la escala elegida
   useEffect(() => {
-    if (isPentatonicScale && routeMode === "nps") setRouteMode("auto");
-    if (!isPentatonicScale && routeMode === "penta") setRouteMode("auto");
-    if (!isPentatonicScale && scaleIntervals.length !== 7 && routeMode === "nps") setRouteMode("auto");
-  }, [isPentatonicScale, scaleIntervals.length, routeMode]);
+    if (usesFiveNoteBoxPatterns && routeMode === "nps") setRouteMode("auto");
+    if (!usesFiveNoteBoxPatterns && routeMode === "penta") setRouteMode("auto");
+    if (!usesFiveNoteBoxPatterns && scaleIntervals.length !== 7 && routeMode === "nps") setRouteMode("auto");
+  }, [usesFiveNoteBoxPatterns, scaleIntervals.length, routeMode]);
   const scalePcs = useMemo(() => new Set(scaleIntervals.map((i) => mod12(rootPc + i))), [scaleIntervals, rootPc]);
 
   const thirdOffsets = useMemo(() => pickThirdOffsets(scaleIntervals), [scaleIntervals]);
@@ -11584,11 +11709,11 @@ export default function FretboardScalesPage() {
   const patternsMerged = useMemo(() => {
     // AUTO: mantiene el comportamiento existente
     if (patternsMode === "auto") {
-      if (isPentatonicScale && scaleIntervals.length === 5) {
+      if (usesFiveNoteBoxPatterns) {
         const inst = buildPentatonicBoxInstances({ rootPc, scaleIntervals, maxFret });
         return mergeInstancesToPatterns(inst, 5, "Box");
       }
-      if (!isPentatonicScale && scaleIntervals.length === 7) {
+      if (scaleIntervals.length === 7) {
         return build3NpsPatternsMerged({ rootPc, scaleIntervals, maxFret });
       }
       return [];
@@ -11613,7 +11738,7 @@ export default function FretboardScalesPage() {
     }
 
     return [];
-  }, [patternsMode, isPentatonicScale, rootPc, scaleIntervals, maxFret]);
+  }, [patternsMode, usesFiveNoteBoxPatterns, rootPc, scaleIntervals, maxFret]);
 
   const patternMembership = useMemo(() => buildMembershipMap(patternsMerged), [patternsMerged]);
 
@@ -11738,16 +11863,16 @@ export default function FretboardScalesPage() {
 
   // Instancias para ruta (separamos pentatónicas de 7 notas)
   const pentaBoxInstances = useMemo(() => {
-    if (!isPentatonicScale || scaleIntervals.length !== 5) return [];
+    if (!usesFiveNoteBoxPatterns) return [];
     return buildPentatonicBoxInstances({ rootPc, scaleIntervals, maxFret });
-  }, [isPentatonicScale, rootPc, scaleIntervals, maxFret]);
+  }, [usesFiveNoteBoxPatterns, rootPc, scaleIntervals, maxFret]);
 
   const pentaBoxMembership = useMemo(() => buildInstanceMembershipMap(pentaBoxInstances), [pentaBoxInstances]);
 
   const npsInstances = useMemo(() => {
-    if (isPentatonicScale || scaleIntervals.length !== 7) return [];
+    if (scaleIntervals.length !== 7) return [];
     return build3NpsPatternInstances({ rootPc, scaleIntervals, maxFret });
-  }, [isPentatonicScale, rootPc, scaleIntervals, maxFret]);
+  }, [rootPc, scaleIntervals, maxFret]);
 
   const npsMembership = useMemo(() => buildInstanceMembershipMap(npsInstances), [npsInstances]);
 
@@ -11768,12 +11893,12 @@ export default function FretboardScalesPage() {
       let membership = new Map();
       let typeFilter = null;
 
-      if (m === "penta" && isPentatonicScale && scaleIntervals.length === 5) {
+      if (m === "penta" && usesFiveNoteBoxPatterns) {
         internalMode = "pattern";
         instances = pentaBoxInstances;
         membership = pentaBoxMembership;
         typeFilter = fixedPatternIdx;
-      } else if (m === "nps" && !isPentatonicScale && scaleIntervals.length === 7) {
+      } else if (m === "nps" && scaleIntervals.length === 7) {
         internalMode = "pattern";
         instances = npsInstances;
         membership = npsMembership;
@@ -11840,14 +11965,14 @@ export default function FretboardScalesPage() {
 
     if (routeMode === "auto") {
       // Mantiene comportamiento previo (no añade CAGED a auto para no romper resultados existentes)
-      if (isPentatonicScale) return pickBest(["penta", "pos", "free"]);
+      if (usesFiveNoteBoxPatterns) return pickBest(["penta", "pos", "free"]);
       if (scaleIntervals.length === 7) return pickBest(["nps", "pos", "free"]);
       return pickBest(["pos", "free"]);
     }
 
     // Manual
-    if (routeMode === "penta" && isPentatonicScale) return pickBest(["penta"]);
-    if (routeMode === "nps" && !isPentatonicScale && scaleIntervals.length === 7) return pickBest(["nps"]);
+    if (routeMode === "penta" && usesFiveNoteBoxPatterns) return pickBest(["penta"]);
+    if (routeMode === "nps" && scaleIntervals.length === 7) return pickBest(["nps"]);
     if (routeMode === "caged") return pickBest(["caged"]);
     if (routeMode === "pos") return pickBest(["pos"]);
     return pickBest(["free"]);
@@ -11858,7 +11983,7 @@ export default function FretboardScalesPage() {
     startPos,
     endPos,
     routeMode,
-    isPentatonicScale,
+    usesFiveNoteBoxPatterns,
     routeKeepPattern,
     fixedPatternIdx,
     allowPatternSwitch,
@@ -11908,6 +12033,51 @@ export default function FretboardScalesPage() {
     );
   }
 
+  function NavIconLabel({ icon: Icon, label }) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span>{label}</span>
+      </span>
+    );
+  }
+
+  function openMobileInfoPopover(event, title, text) {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || 360;
+    const width = Math.min(360, Math.max(240, viewportWidth - 24));
+    const centeredLeft = (viewportWidth - width) / 2;
+    const left = Math.max(12, Math.min(centeredLeft, viewportWidth - width - 12));
+    setMobileInfoPopover({
+      title,
+      text,
+      left,
+      top: rect.bottom + 8,
+      width,
+      arrowLeft: rect.left + rect.width / 2 - left,
+    });
+  }
+
+  function InfoTitle({ label, info }) {
+    if (!isMobileLayout || !info) return label;
+
+    return (
+      <span className="inline-flex min-w-0 items-center gap-1.5">
+        <span>{label}</span>
+        <button
+          type="button"
+          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-slate-600 hover:text-slate-900"
+          onClick={(e) => openMobileInfoPopover(e, label, info)}
+          aria-label={`Información sobre ${label}`}
+        >
+          <Info className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </span>
+    );
+  }
+
   function FretInlayRow({ kind }) {
     const isDouble = kind === "double";
     return (
@@ -11925,6 +12095,78 @@ export default function FretboardScalesPage() {
     );
   }
 
+  function WebFretNumberHeader({ fret }) {
+    return (
+      <div className="relative flex flex-col items-center">
+        <div className="text-[10px] text-slate-600">{fret}</div>
+        <div className="mt-0.5 flex h-2.5 items-center justify-center gap-0.5">
+          {mobileFretHasInlay(fret)
+            ? Array.from({ length: INLAY_DOUBLE.has(fret) ? 2 : 1 }, (_, idx) => (
+                <div key={idx} className="h-2.5 w-2.5 rounded-full bg-slate-300 opacity-90" />
+              ))
+            : null}
+        </div>
+      </div>
+    );
+  }
+
+  function MobileMainFretboard({ renderCell }) {
+    return (
+      <div className="mx-auto w-fit max-w-full">
+        <div className="relative grid items-center gap-1" style={{ gridTemplateColumns: MOBILE_VERTICAL_FRETBOARD_COLS }}>
+          <div className="absolute right-full mr-1 text-xs font-semibold text-slate-600" style={{ width: MOBILE_VERTICAL_FRET_LABEL_COL }}>
+            Traste
+          </div>
+          {MOBILE_VERTICAL_STRING_ORDER.map((sIdx) => {
+            const parts = mobileStringHeaderParts(STRINGS[sIdx].label);
+            return (
+              <div key={sIdx} className="flex flex-col items-center justify-center text-center" title={STRINGS[sIdx].label}>
+                <div className="text-xs font-medium leading-none text-slate-700">{parts.number}</div>
+                <div className="mt-1 text-[10px] font-medium leading-none text-slate-500">{parts.openNote}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-2 space-y-1">
+          {Array.from({ length: maxFret + 1 }, (_, fret) => (
+            <div
+              key={fret}
+              className="relative grid items-center gap-1"
+              style={{ gridTemplateColumns: mobileVerticalFretGridCols() }}
+            >
+              <div
+                className="absolute right-full mr-1 flex items-center justify-center"
+                style={{ width: MOBILE_VERTICAL_FRET_LABEL_COL, height: "100%" }}
+              >
+                <div className="text-[10px] text-slate-600">{fret}</div>
+                {mobileFretHasInlay(fret) ? (
+                  <div className="absolute right-0 top-1/2 flex -translate-y-1/2 flex-col items-center justify-center">
+                    {Array.from({ length: INLAY_DOUBLE.has(fret) ? 2 : 1 }, (_, idx) => (
+                      <div key={idx} className={`${idx ? "mt-0.5" : ""} h-2.5 w-2.5 rounded-full bg-slate-300 opacity-90`} />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              {MOBILE_VERTICAL_STRING_ORDER.map((sIdx) => renderCell({ sIdx, fret, cellClassName: mobileVerticalFretCellClass(fret) }))}
+              {mobileFretHasInlay(fret) ? (
+                <div className="pointer-events-none absolute inset-x-0 top-1/2 z-[1] -translate-y-1/2">
+                  <div className="grid items-center gap-1" style={{ gridTemplateColumns: mobileVerticalFretGridCols() }}>
+                    {mobileInlayGridColumns(fret).map((gridColumn) => (
+                      <div key={`inlay-${fret}-${gridColumn}`} className="flex items-center justify-center" style={{ gridColumn }}>
+                        <div className="h-3.5 w-3.5 rounded-full bg-slate-300 opacity-90" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   // --------------------------------------------------------------------------
   // COMPONENTES UI INTERNOS
   // --------------------------------------------------------------------------
@@ -11934,14 +12176,16 @@ export default function FretboardScalesPage() {
     const tagList = Array.isArray(kingTags) ? kingTags : [];
     const baseStyle = circleStyle(baseRole);
     const boxShadowParts = [baseStyle.boxShadow].filter(Boolean);
-    if (tagList.includes("bb")) boxShadowParts.push(`0 0 0 4px ${kingBoxColors.bb}`);
-    if (tagList.includes("albert")) boxShadowParts.push(`0 0 0 6px ${kingBoxColors.albert}`);
+    const hasBbKingTag = tagList.includes("bb");
+    const hasAlbertKingTag = tagList.includes("albert");
+    if (hasBbKingTag) boxShadowParts.push(`0 0 0 2px ${kingBoxColors.bb}`);
+    if (hasAlbertKingTag) boxShadowParts.push(`0 0 0 ${hasBbKingTag ? 4 : 2}px ${kingBoxColors.albert}`);
     const kingTitle = tagList.length
       ? ` · ${tagList.map((tag) => tag === "bb" ? KING_BOX_DEFAULTS.bb.label : KING_BOX_DEFAULTS.albert.label).join(" + ")}`
       : "";
     return (
       <div
-        className="relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold"
+        className={`relative z-20 inline-flex items-center justify-center rounded-full text-[10px] font-semibold ${mobileVerticalOpenNoteClass(fret, isMobileLayout)}`}
         style={{ ...baseStyle, boxShadow: boxShadowParts.join(", ") }}
         title={`${pcToDualName(pc)} · ${intervalToDegreeToken(mod12(pc - rootPc))}${kingTitle}`}
       >
@@ -12780,92 +13024,129 @@ function ChordFretboard({
 
   function RouteLabFretboard() {
     return (
-      <PanelBlock
-        title="Ruta musical"
-        description="Ruta musical reescrita desde cero con criterio más tocable."
-        headerAside={<div className="text-xs text-slate-600">
-            {routeLabResult.reason ? (
-              <span className="font-semibold text-rose-600">{routeLabResult.reason}</span>
-            ) : (
-              <span>
-                Ruta: {routeLabStartCode} {"\u2192"} {routeLabEndCode} | pasos: <b>{routeLabResult.path.length}</b>
-              </span>
-            )}
-          </div>}
-      >
+      <>
+        {isMobileLayout ? (
+          <MobileMainFretboard
+            renderCell={({ sIdx, fret, cellClassName }) => {
+              const pc = mod12(STRINGS[sIdx].pc + fret);
+              const inScale = scalePcs.has(pc);
+              const inExtra = showExtra && extraPcs.has(pc);
+              const displayRole = getDisplayRole({ pc, inScale, inExtra });
+              const cellKey = `${sIdx}:${fret}`;
+              const routeIdx = routeLabIndexByCell.get(cellKey);
+              const inRoute = routeIdx != null;
+              const bgRoute = inRoute
+                ? {
+                    backgroundImage: `linear-gradient(0deg, ${rgba(colors.route, 0.28)} 0%, ${rgba(colors.route, 0.28)} 100%)`,
+                    boxShadow: `inset 0 0 0 2px ${rgba("#000000", 0.9)}`,
+                  }
+                : {};
+              const shouldRender = inRoute || displayRole !== null || showNonScale;
+              const effectiveRole = displayRole ?? roleOfPc(pc);
 
-        <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
-          <div className="text-xs font-semibold text-slate-600">Cuerda</div>
-          {Array.from({ length: maxFret + 1 }, (_, fret) => (
-            <div key={fret} className="relative flex flex-col items-center">
-              <div className="text-[10px] text-slate-600">{fret}</div>
+              return (
+                <div
+                  key={`${sIdx}-${fret}`}
+                  onClick={() => {
+                    if (!inScale) return;
+                    const code = `${sIdx + 1}${fret}`;
+                    if (routeLabPickNext === "start") {
+                      setRouteLabStartCode(code);
+                      setRouteLabPickNext("end");
+                    } else {
+                      setRouteLabEndCode(code);
+                      setRouteLabPickNext("start");
+                    }
+                  }}
+                  className={`group relative isolate flex w-full overflow-visible items-center justify-center rounded-lg border ${cellClassName} ${
+                    fret === 0 ? "border-slate-300" : "border-slate-200"
+                  } ${shouldRender && displayRole ? "z-[4]" : "z-0"} ${inScale ? "cursor-pointer hover:ring-2 hover:ring-slate-300" : ""}`}
+                  style={{ backgroundColor: FRET_CELL_BG, ...bgRoute }}
+                >
+                  <HoverCellNote sIdx={sIdx} fret={fret} visible={!shouldRender} />
+                  {shouldRender && (inRoute || displayRole !== null) ? (
+                    <Circle pc={pc} role={effectiveRole} fret={fret} sIdx={sIdx} badge={inRoute ? routeIdx : null} kingTags={[]} />
+                  ) : showNonScale ? (
+                    <div className="text-[10px] text-slate-400">{labelForPc(pc)}</div>
+                  ) : null}
+                </div>
+              );
+            }}
+          />
+        ) : (
+          <>
+            <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
+              <div className="text-xs font-semibold text-slate-600">Cuerda</div>
+              {Array.from({ length: maxFret + 1 }, (_, fret) => (
+                <WebFretNumberHeader key={fret} fret={fret} />
+              ))}
             </div>
-          ))}
-        </div>
 
-        <div className="mt-2 space-y-1">
-          {STRINGS.map((st, sIdx) => (
-            <React.Fragment key={st.label}>
-              <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
-                <div className="text-xs font-medium text-slate-700">{st.label}</div>
+            <div className="mt-2 space-y-1">
+              {STRINGS.map((st, sIdx) => (
+                <React.Fragment key={st.label}>
+                  <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
+                    <div className="text-xs font-medium text-slate-700">{st.label}</div>
 
-                {Array.from({ length: maxFret + 1 }, (_, fret) => {
-                  const pc = mod12(st.pc + fret);
-                  const inScale = scalePcs.has(pc);
-                  const inExtra = showExtra && extraPcs.has(pc);
-                  const displayRole = getDisplayRole({ pc, inScale, inExtra });
-                  const cellKey = `${sIdx}:${fret}`;
-                  const routeIdx = routeLabIndexByCell.get(cellKey);
-                  const inRoute = routeIdx != null;
-                  const bgRoute = inRoute
-                    ? {
-                        backgroundImage: `linear-gradient(0deg, ${rgba(colors.route, 0.28)} 0%, ${rgba(colors.route, 0.28)} 100%)`,
-                        boxShadow: `inset 0 0 0 2px ${rgba("#000000", 0.9)}`,
-                      }
-                    : {};
-                  const shouldRender = inRoute || displayRole !== null || showNonScale;
-                  const effectiveRole = displayRole ?? roleOfPc(pc);
+                    {Array.from({ length: maxFret + 1 }, (_, fret) => {
+                      const pc = mod12(st.pc + fret);
+                      const inScale = scalePcs.has(pc);
+                      const inExtra = showExtra && extraPcs.has(pc);
+                      const displayRole = getDisplayRole({ pc, inScale, inExtra });
+                      const cellKey = `${sIdx}:${fret}`;
+                      const routeIdx = routeLabIndexByCell.get(cellKey);
+                      const inRoute = routeIdx != null;
+                      const bgRoute = inRoute
+                        ? {
+                            backgroundImage: `linear-gradient(0deg, ${rgba(colors.route, 0.28)} 0%, ${rgba(colors.route, 0.28)} 100%)`,
+                            boxShadow: `inset 0 0 0 2px ${rgba("#000000", 0.9)}`,
+                          }
+                        : {};
+                      const shouldRender = inRoute || displayRole !== null || showNonScale;
+                      const effectiveRole = displayRole ?? roleOfPc(pc);
 
-                  return (
-                    <div
-                      key={`${sIdx}-${fret}`}
-                      onClick={() => {
-                        if (!inScale) return;
-                        const code = `${sIdx + 1}${fret}`;
-                        if (routeLabPickNext === "start") {
-                          setRouteLabStartCode(code);
-                          setRouteLabPickNext("end");
-                        } else {
-                          setRouteLabEndCode(code);
-                          setRouteLabPickNext("start");
-                        }
-                      }}
-                      className={`group relative isolate flex h-8 overflow-visible items-center justify-center rounded-lg border ${
-                        fret === 0 ? "border-slate-300" : "border-slate-200"
-                      } ${shouldRender && displayRole ? "z-[4]" : "z-0"} ${inScale ? "cursor-pointer hover:ring-2 hover:ring-slate-300" : ""}`}
-                      style={{ backgroundColor: FRET_CELL_BG, ...bgRoute }}
-                    >
-                      {hasInlayCell(fret, sIdx) ? (
+                      return (
                         <div
-                          className="pointer-events-none absolute left-1/2 z-0 -translate-x-1/2"
-                          style={{ bottom: "-10px" }}
+                          key={`${sIdx}-${fret}`}
+                          onClick={() => {
+                            if (!inScale) return;
+                            const code = `${sIdx + 1}${fret}`;
+                            if (routeLabPickNext === "start") {
+                              setRouteLabStartCode(code);
+                              setRouteLabPickNext("end");
+                            } else {
+                              setRouteLabEndCode(code);
+                              setRouteLabPickNext("start");
+                            }
+                          }}
+                          className={`group relative isolate flex h-8 overflow-visible items-center justify-center rounded-lg border ${
+                            fret === 0 ? "border-slate-300" : "border-slate-200"
+                          } ${shouldRender && displayRole ? "z-[4]" : "z-0"} ${inScale ? "cursor-pointer hover:ring-2 hover:ring-slate-300" : ""}`}
+                          style={{ backgroundColor: FRET_CELL_BG, ...bgRoute }}
                         >
-                          <div className="h-4 w-4 rounded-full bg-slate-300 opacity-95" />
+                          {hasInlayCell(fret, sIdx) ? (
+                            <div
+                              className="pointer-events-none absolute left-1/2 z-0 -translate-x-1/2"
+                              style={{ bottom: "-10px" }}
+                            >
+                              <div className="h-4 w-4 rounded-full bg-slate-300 opacity-95" />
+                            </div>
+                          ) : null}
+                          <HoverCellNote sIdx={sIdx} fret={fret} visible={!shouldRender} />
+                          {shouldRender && (inRoute || displayRole !== null) ? (
+                            <Circle pc={pc} role={effectiveRole} fret={fret} sIdx={sIdx} badge={inRoute ? routeIdx : null} kingTags={[]} />
+                          ) : showNonScale ? (
+                            <div className="text-[10px] text-slate-400">{labelForPc(pc)}</div>
+                          ) : null}
                         </div>
-                      ) : null}
-                      <HoverCellNote sIdx={sIdx} fret={fret} visible={!shouldRender} />
-                      {shouldRender && (inRoute || displayRole !== null) ? (
-                        <Circle pc={pc} role={effectiveRole} fret={fret} sIdx={sIdx} badge={inRoute ? routeIdx : null} kingTags={[]} />
-                      ) : showNonScale ? (
-                        <div className="text-[10px] text-slate-400">{labelForPc(pc)}</div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </React.Fragment>
-          ))}
-        </div>
+                      );
+                    })}
+                  </div>
+                </React.Fragment>
+              ))}
+            </div>
+          </>
+        )}
 
         <div className="mt-3 space-y-1 text-xs text-slate-600">
           <div>
@@ -12874,7 +13155,7 @@ function ChordFretboard({
           <div>
             Escala activa ({pcToName(rootPc, preferSharps)}): {spelledScaleNotes.join(" – ")}
           </div>
-          {routeLabText ? (
+          {debugMode && routeLabText ? (
             <>
               <div>
                 <b>Ruta texto:</b> {routeLabText}
@@ -12893,7 +13174,7 @@ function ChordFretboard({
             </>
           ) : null}
 
-    {routeStaffEvents.length ? (
+          {routeStaffEvents.length ? (
             <div className="mt-3">
               <div className="mb-1 text-xs font-semibold text-slate-700">Pentagrama 4/4</div>
               <MusicStaff
@@ -12917,7 +13198,7 @@ function ChordFretboard({
             </>
           ) : null}
         </div>
-      </PanelBlock>
+      </>
     );
   }
 
@@ -12928,8 +13209,8 @@ function ChordFretboard({
 
     return (
       <PanelBlock
-        title={title}
-        description={subtitle}
+        title={<InfoTitle label={title} info={subtitle} />}
+        titleTooltip={!isMobileLayout ? subtitle : ""}
         headerAside={mode === "patterns" ? (
             <div className="flex items-center gap-2">
               <div className="text-xs font-semibold text-slate-700">Modo patrones:</div>
@@ -12957,87 +13238,143 @@ function ChordFretboard({
             </div>
           ) : null}
       >
+        {isMobileLayout ? (
+          <MobileMainFretboard
+            renderCell={({ sIdx, fret, cellClassName }) => {
+              const st = STRINGS[sIdx];
+              const pc = mod12(st.pc + fret);
+              const inScale = scalePcs.has(pc);
+              const inExtra = showExtra && extraPcs.has(pc);
+              const displayRole = getDisplayRole({ pc, inScale, inExtra });
 
-        {/* Cabecera de trastes */}
-        <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
-          <div className="text-xs font-semibold text-slate-600">Cuerda</div>
-          {Array.from({ length: maxFret + 1 }, (_, fret) => (
-            <div key={fret} className="relative flex flex-col items-center">
-              <div className="text-[10px] text-slate-600">{fret}</div>
+              const cellKey = `${sIdx}:${fret}`;
+              const bgPat = mode === "patterns" && inScale ? patternBgStyle(cellKey) : {};
+
+              const routeIdx = mode === "route" ? routeIndexByCell.get(cellKey) : null;
+              const inRoute = mode === "route" && routeIdx != null;
+              const bgRoute = inRoute
+                ? {
+                    backgroundImage: `linear-gradient(0deg, ${rgba(colors.route, 0.28)} 0%, ${rgba(colors.route, 0.28)} 100%)`,
+                    boxShadow: `inset 0 0 0 2px ${rgba("#000000", 0.9)}`,
+                  }
+                : {};
+
+              const kingTags = usesKingOverlay ? Array.from(kingBoxOverlay.get(cellKey) || []) : [];
+              const effectiveRole = displayRole ?? (kingTags.length ? roleOfPc(pc) : null);
+              const shouldRender = effectiveRole !== null || showAllNotes || kingTags.length > 0;
+
+              return (
+                <div
+                  key={`${sIdx}-${fret}`}
+                  onClick={() => {
+                    if (mode !== "route") return;
+                    if (!inScale) return;
+                    const code = `${sIdx + 1}${fret}`;
+                    if (routePickNext === "start") {
+                      setRouteStartCode(code);
+                      setRoutePickNext("end");
+                    } else {
+                      setRouteEndCode(code);
+                      setRoutePickNext("start");
+                    }
+                  }}
+                  className={`group relative isolate flex w-full overflow-visible items-center justify-center rounded-lg border ${cellClassName} ${
+                    fret === 0 ? "border-slate-300" : "border-slate-200"
+                  } ${shouldRender && displayRole ? "z-[4]" : "z-0"} ${mode === "route" && inScale ? "cursor-pointer hover:ring-2 hover:ring-slate-300" : ""}`}
+                  style={{ backgroundColor: FRET_CELL_BG, ...bgPat, ...bgRoute }}
+                >
+                  <HoverCellNote sIdx={sIdx} fret={fret} visible={!shouldRender} />
+                  {shouldRender && effectiveRole ? (
+                    <Circle pc={pc} role={effectiveRole} fret={fret} sIdx={sIdx} badge={mode === "route" ? routeIdx : null} kingTags={kingTags} />
+                  ) : showAllNotes ? (
+                    <div className="text-[10px] text-slate-400">{labelForPc(pc)}</div>
+                  ) : null}
+                </div>
+              );
+            }}
+          />
+        ) : (
+          <>
+            {/* Cabecera de trastes */}
+            <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
+              <div className="text-xs font-semibold text-slate-600">Cuerda</div>
+              {Array.from({ length: maxFret + 1 }, (_, fret) => (
+                <WebFretNumberHeader key={fret} fret={fret} />
+              ))}
             </div>
-          ))}
-        </div>
 
-        <div className="mt-2 space-y-1">
-          {STRINGS.map((st, sIdx) => (
-            <React.Fragment key={st.label}>
-              <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
-                <div className="text-xs font-medium text-slate-700">{st.label}</div>
+            <div className="mt-2 space-y-1">
+              {STRINGS.map((st, sIdx) => (
+                <React.Fragment key={st.label}>
+                  <div className="grid items-center gap-1" style={{ gridTemplateColumns: fretGridCols(maxFret) }}>
+                    <div className="text-xs font-medium text-slate-700">{st.label}</div>
 
-                {Array.from({ length: maxFret + 1 }, (_, fret) => {
-                  const pc = mod12(st.pc + fret);
-                  const inScale = scalePcs.has(pc);
-                  const inExtra = showExtra && extraPcs.has(pc);
-                  const displayRole = getDisplayRole({ pc, inScale, inExtra });
+                    {Array.from({ length: maxFret + 1 }, (_, fret) => {
+                      const pc = mod12(st.pc + fret);
+                      const inScale = scalePcs.has(pc);
+                      const inExtra = showExtra && extraPcs.has(pc);
+                      const displayRole = getDisplayRole({ pc, inScale, inExtra });
 
-                  const cellKey = `${sIdx}:${fret}`;
-                  const bgPat = mode === "patterns" && inScale ? patternBgStyle(cellKey) : {};
+                      const cellKey = `${sIdx}:${fret}`;
+                      const bgPat = mode === "patterns" && inScale ? patternBgStyle(cellKey) : {};
 
-                  const routeIdx = mode === "route" ? routeIndexByCell.get(cellKey) : null;
-                  const inRoute = mode === "route" && routeIdx != null;
-                  const bgRoute = inRoute
-                    ? {
-                        backgroundImage: `linear-gradient(0deg, ${rgba(colors.route, 0.28)} 0%, ${rgba(colors.route, 0.28)} 100%)`,
-                        boxShadow: `inset 0 0 0 2px ${rgba("#000000", 0.9)}`,
-                      }
-                    : {};
+                      const routeIdx = mode === "route" ? routeIndexByCell.get(cellKey) : null;
+                      const inRoute = mode === "route" && routeIdx != null;
+                      const bgRoute = inRoute
+                        ? {
+                            backgroundImage: `linear-gradient(0deg, ${rgba(colors.route, 0.28)} 0%, ${rgba(colors.route, 0.28)} 100%)`,
+                            boxShadow: `inset 0 0 0 2px ${rgba("#000000", 0.9)}`,
+                          }
+                        : {};
 
-                  const kingTags = usesKingOverlay ? Array.from(kingBoxOverlay.get(cellKey) || []) : [];
-                  const effectiveRole = displayRole ?? (kingTags.length ? roleOfPc(pc) : null);
-                  const shouldRender = effectiveRole !== null || showAllNotes || kingTags.length > 0;
+                      const kingTags = usesKingOverlay ? Array.from(kingBoxOverlay.get(cellKey) || []) : [];
+                      const effectiveRole = displayRole ?? (kingTags.length ? roleOfPc(pc) : null);
+                      const shouldRender = effectiveRole !== null || showAllNotes || kingTags.length > 0;
 
-                  return (
-                    <div
-                      key={`${sIdx}-${fret}`}
-                      onClick={() => {
-                        // Selección rápida de inicio/fin SOLO en el mástil de ruta y sobre notas de la escala.
-                        if (mode !== "route") return;
-                        if (!inScale) return;
-                        const code = `${sIdx + 1}${fret}`;
-                        if (routePickNext === "start") {
-                          setRouteStartCode(code);
-                          setRoutePickNext("end");
-                        } else {
-                          setRouteEndCode(code);
-                          setRoutePickNext("start");
-                        }
-                      }}
-                      className={`group relative isolate flex h-8 overflow-visible items-center justify-center rounded-lg border ${
-                        fret === 0 ? "border-slate-300" : "border-slate-200"
-                      } ${shouldRender && displayRole ? "z-[4]" : "z-0"} ${mode === "route" && inScale ? "cursor-pointer hover:ring-2 hover:ring-slate-300" : ""}`}
-                      style={{ backgroundColor: FRET_CELL_BG, ...bgPat, ...bgRoute }}
-                    >
-                      {hasInlayCell(fret, sIdx) ? (
+                      return (
                         <div
-                          className="pointer-events-none absolute left-1/2 z-0 -translate-x-1/2"
-                          style={{ bottom: "-10px" }}
+                          key={`${sIdx}-${fret}`}
+                          onClick={() => {
+                            // Selección rápida de inicio/fin SOLO en el mástil de ruta y sobre notas de la escala.
+                            if (mode !== "route") return;
+                            if (!inScale) return;
+                            const code = `${sIdx + 1}${fret}`;
+                            if (routePickNext === "start") {
+                              setRouteStartCode(code);
+                              setRoutePickNext("end");
+                            } else {
+                              setRouteEndCode(code);
+                              setRoutePickNext("start");
+                            }
+                          }}
+                          className={`group relative isolate flex h-8 overflow-visible items-center justify-center rounded-lg border ${
+                            fret === 0 ? "border-slate-300" : "border-slate-200"
+                          } ${shouldRender && displayRole ? "z-[4]" : "z-0"} ${mode === "route" && inScale ? "cursor-pointer hover:ring-2 hover:ring-slate-300" : ""}`}
+                          style={{ backgroundColor: FRET_CELL_BG, ...bgPat, ...bgRoute }}
                         >
-                          <div className="h-4 w-4 rounded-full bg-slate-300 opacity-95" />
+                          {hasInlayCell(fret, sIdx) ? (
+                            <div
+                              className="pointer-events-none absolute left-1/2 z-0 -translate-x-1/2"
+                              style={{ bottom: "-10px" }}
+                            >
+                              <div className="h-4 w-4 rounded-full bg-slate-300 opacity-95" />
+                            </div>
+                          ) : null}
+                          <HoverCellNote sIdx={sIdx} fret={fret} visible={!shouldRender} />
+                          {shouldRender && effectiveRole ? (
+                            <Circle pc={pc} role={effectiveRole} fret={fret} sIdx={sIdx} badge={mode === "route" ? routeIdx : null} kingTags={kingTags} />
+                          ) : showAllNotes ? (
+                            <div className="text-[10px] text-slate-400">{labelForPc(pc)}</div>
+                          ) : null}
                         </div>
-                      ) : null}
-                      <HoverCellNote sIdx={sIdx} fret={fret} visible={!shouldRender} />
-                      {shouldRender && effectiveRole ? (
-                        <Circle pc={pc} role={effectiveRole} fret={fret} sIdx={sIdx} badge={mode === "route" ? routeIdx : null} kingTags={kingTags} />
-                      ) : showAllNotes ? (
-                        <div className="text-[10px] text-slate-400">{labelForPc(pc)}</div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </React.Fragment>
-          ))}
-        </div>
+                      );
+                    })}
+                  </div>
+                </React.Fragment>
+              ))}
+            </div>
+          </>
+        )}
 
         <div className="mt-3 space-y-1 text-xs text-slate-600">
           <div>
@@ -13189,7 +13526,14 @@ function ChordFretboard({
   // CONSTANTES DE UI Y LAYOUT
   // --------------------------------------------------------------------------
 
-  const wrap = "mx-auto w-full max-w-[1500px] p-3 xl:min-w-[1500px]";
+  const wrap = "mx-auto w-full p-3";
+  const wrapStyle = isMobileLayout
+    ? undefined
+    : {
+        width: "100%",
+        minWidth: `${webAppWidthPx(maxFret, WEB_FRET_CELL_MIN_WIDTH_PX)}px`,
+        maxWidth: `${webAppWidthPx(maxFret, WEB_FRET_CELL_MAX_WIDTH_PX)}px`,
+      };
 
   // UI compacto (especialmente para Acordes)
   const UI_SELECT_SM = "h-7 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs shadow-sm hover:bg-sky-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed";
@@ -13244,6 +13588,7 @@ function ChordFretboard({
   const themeHoverBg = themeObjectBg;
   const themeDisabledControlText = isDark(themeDisabledControlBg) ? "#f8fafc" : "#64748b";
   const themeDisabledControlBorder = isDark(themeDisabledControlBg) ? "#475569" : "#cbd5e1";
+  const routeLabPickHelpText = `Click en el mástil de ruta para elegir: ${routeLabPickNext === "start" ? "Inicio" : "Fin"}.`;
   const appThemeStyle = {
     backgroundColor: themePageBg,
     "--panel-bg": themeElementBg,
@@ -13267,14 +13612,6 @@ function ChordFretboard({
       return;
     }
     setShowBoards((prev) => normalizeBoardVisibility({ ...prev, [section]: true }, section));
-  }
-
-  function openTonalContextEditor() {
-    if (isMobileLayout) {
-      setMobileTonalContextOpen(true);
-      return;
-    }
-    tonalContextRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function renderColorPanels(boardVisibility, extraClassName = "") {
@@ -13358,7 +13695,7 @@ function ChordFretboard({
   function renderTonalContextFields() {
     return (
       <>
-        <div className="flex flex-wrap items-end gap-3 xl:flex-nowrap">
+        <div className="flex flex-wrap items-end gap-3">
           <div className="flex flex-wrap items-end gap-3">
             <div>
               <label className={UI_LABEL_SM}>Nota raíz</label>
@@ -13473,9 +13810,9 @@ function ChordFretboard({
 
           <div className="min-w-0">
             <div className={UI_LABEL_SM}>Notas extra</div>
-            <div className="mt-1 flex items-center gap-2">
+            <div className="mt-1 flex items-center gap-1.5">
               <input
-                className={UI_INPUT_SM + " w-28"}
+                className={UI_INPUT_SM + " w-14"}
                 value={extraInput}
                 onChange={(e) => setExtraInput(e.target.value)}
                 placeholder="Ej: b2"
@@ -13486,6 +13823,54 @@ function ChordFretboard({
               </ToggleButton>
             </div>
           </div>
+
+          {isKingBoxEligibleScale ? (
+            <div className="min-w-0 shrink-0">
+              <div className={UI_LABEL_SM}>Casita blues</div>
+              <div className="mt-1 inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-sky-50 px-2 text-xs text-slate-700">
+                <label className="inline-flex items-center gap-1.5 font-semibold text-slate-700" title="Muestra las casitas de blues sobre el mástil de escala">
+                  <input
+                    type="checkbox"
+                    checked={showKingBoxes}
+                    onChange={(e) => setShowKingBoxes(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-slate-300"
+                  />
+                  Casita
+                </label>
+                <select
+                  className={UI_SELECT_SM.replace("w-full", "") + " h-7 w-28 px-2 text-xs"}
+                  value={kingBoxMode}
+                  onChange={(e) => setKingBoxMode(e.target.value)}
+                  disabled={!showKingBoxes}
+                  title="Elige la casita a resaltar"
+                >
+                  <option value="bb">B.B. King</option>
+                  <option value="albert">Albert</option>
+                  <option value="both">Ambas</option>
+                </select>
+                <label className="inline-flex items-center gap-1" title={KING_BOX_DEFAULTS.bb.label}>
+                  <span>BB</span>
+                  <input
+                    type="color"
+                    value={kingBoxColors.bb}
+                    onChange={(e) => setKingBoxColors((prev) => ({ ...prev, bb: e.target.value }))}
+                    className="h-7 w-8 cursor-pointer rounded-md border border-slate-200 bg-white"
+                    title="Color del borde de B.B. King"
+                  />
+                </label>
+                <label className="inline-flex items-center gap-1" title={KING_BOX_DEFAULTS.albert.label}>
+                  <span>A</span>
+                  <input
+                    type="color"
+                    value={kingBoxColors.albert}
+                    onChange={(e) => setKingBoxColors((prev) => ({ ...prev, albert: e.target.value }))}
+                    className="h-7 w-8 cursor-pointer rounded-md border border-slate-200 bg-white"
+                    title="Color del borde de Albert King"
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {scaleName === "Personalizada" ? (
@@ -13506,55 +13891,6 @@ function ChordFretboard({
           <div className="mt-0.5 text-xs text-slate-600"><b>Notas:</b> {scaleTetradNotesText}</div>
         </div>
 
-        {isKingBoxEligibleScale ? (
-          <div className="mt-3">
-            <div className="min-w-0 xl:min-w-[760px]">
-              <div className={UI_LABEL_SM}>Casitas blues</div>
-              <div className="mt-1 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-sky-50 px-2 py-2 text-xs text-slate-700">
-                <label className="inline-flex items-center gap-2 font-semibold text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={showKingBoxes}
-                    onChange={(e) => setShowKingBoxes(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300"
-                  />
-                  Mostrar
-                </label>
-                <select
-                  className={UI_SELECT_SM.replace("w-full", "") + " w-40"}
-                  value={kingBoxMode}
-                  onChange={(e) => setKingBoxMode(e.target.value)}
-                  disabled={!showKingBoxes}
-                  title="Elige la casita a resaltar"
-                >
-                  <option value="bb">B.B. King</option>
-                  <option value="albert">Albert King</option>
-                  <option value="both">Ambas</option>
-                </select>
-                <label className="inline-flex items-center gap-2">
-                  <span>{KING_BOX_DEFAULTS.bb.label}</span>
-                  <input
-                    type="color"
-                    value={kingBoxColors.bb}
-                    onChange={(e) => setKingBoxColors((prev) => ({ ...prev, bb: e.target.value }))}
-                    className="h-7 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
-                    title="Color del borde de B.B. King"
-                  />
-                </label>
-                <label className="inline-flex items-center gap-2">
-                  <span>{KING_BOX_DEFAULTS.albert.label}</span>
-                  <input
-                    type="color"
-                    value={kingBoxColors.albert}
-                    onChange={(e) => setKingBoxColors((prev) => ({ ...prev, albert: e.target.value }))}
-                    className="h-7 w-10 cursor-pointer rounded-md border border-slate-200 bg-white"
-                    title="Color del borde de Albert King"
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
-        ) : null}
       </>
     );
   }
@@ -13601,7 +13937,7 @@ function ChordFretboard({
           cursor: not-allowed;
         }
       `}</style>
-      <div ref={appRootRef} className={`${wrap} ${isMobileLayout ? "pb-24" : ""}`.trim()}>
+      <div ref={appRootRef} className={`${wrap} ${isMobileLayout ? "pb-28" : ""}`.trim()} style={wrapStyle}>
         <header className="mb-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -13626,25 +13962,26 @@ function ChordFretboard({
             <span className="text-xs font-semibold text-slate-700">Menu</span>
             <div className="flex flex-wrap items-center gap-2">
               <ToggleButton active={effectiveBoards.scale} onClick={() => selectBoardView("scale")} title="Muestra el mástil de la escala">
-                Escala
+                <NavIconLabel icon={Music} label="Escala" />
               </ToggleButton>
               <ToggleButton active={effectiveBoards.patterns} onClick={() => selectBoardView("patterns")} title="Muestra el mástil de patrones">
-                Patrones
+                <NavIconLabel icon={Blocks} label="Patrones" />
               </ToggleButton>
               <ToggleButton active={effectiveBoards.route} onClick={() => selectBoardView("route")} title="Muestra el mástil de ruta">
-                Ruta
+                <NavIconLabel icon={Route} label="Ruta" />
               </ToggleButton>
               <ToggleButton active={effectiveBoards.chords} onClick={() => selectBoardView("chords")} title="Muestra el panel de acordes">
-                Acordes
+                <NavIconLabel icon={ChordDiagramIcon} label="Acordes" />
               </ToggleButton>
               <ToggleButton active={effectiveBoards.nearChords} onClick={() => selectBoardView("nearChords")} title="Muestra el panel de acordes cercanos">
-                Acordes cercanos
+                <NavIconLabel icon={Waypoints} label="Acordes cercanos" />
               </ToggleButton>
               <ToggleButton active={effectiveBoards.configuration} onClick={() => selectBoardView("configuration")} title="Muestra u oculta la configuración general">
-                Configuración
+                <NavIconLabel icon={Settings} label="Configuración" />
               </ToggleButton>
-              <button type="button" className={UI_BTN_SM + " w-auto px-3"} onClick={() => setManualOpen(true)}>
-                Ayuda
+              <button type="button" className={UI_BTN_SM + " inline-flex w-auto items-center gap-1.5 px-3"} onClick={() => setManualOpen(true)}>
+                <HelpCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>Ayuda</span>
               </button>
             </div>
           </div>
@@ -13787,6 +14124,15 @@ function ChordFretboard({
                           </ToggleButton>
                         </div>
                       </div>
+
+                      <div>
+                        <div className={UI_LABEL_SM}>Debug</div>
+                        <div className="mt-1 flex gap-1.5">
+                          <ToggleButton active={debugMode} onClick={() => setDebugMode((v) => !v)} title="Muestra detalles técnicos de cálculo de rutas">
+                            Debug
+                          </ToggleButton>
+                        </div>
+                      </div>
                     </div>
                   </PanelBlock>
 
@@ -13896,52 +14242,81 @@ function ChordFretboard({
             {/* MÁSTILES */}
             <div className="space-y-3">
               {isMobileLayout ? (
-                <button
-                  type="button"
-                  className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm ring-1 ring-slate-200"
-                  onClick={() => setMobileTonalContextOpen(true)}
-                  title={TONAL_CONTEXT_TOOLTIP}
+                <div
+                  className="flex w-full items-center gap-2 rounded-2xl border border-slate-200 p-3 text-left shadow-sm ring-1 ring-slate-200"
+                  style={{ backgroundColor: "var(--subsection-header-bg, #ebf2fa)" }}
                 >
-                  <div className="flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => setMobileTonalContextOpen(true)}
+                  >
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-slate-800" title={TONAL_CONTEXT_TOOLTIP}>Contexto tonal</div>
+                      <div className="text-sm font-semibold text-slate-800">Contexto tonal</div>
                       <div className="mt-1 truncate text-xs font-semibold text-slate-600">{tonalContextSummary}</div>
                     </div>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
+                  </button>
+                  <div className="flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full text-slate-600 hover:text-slate-900"
+                      onClick={(e) => openMobileInfoPopover(e, "Contexto tonal", TONAL_CONTEXT_TOOLTIP)}
+                      aria-label="Información sobre Contexto tonal"
+                    >
+                      <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-xl text-slate-500 hover:bg-sky-50 hover:text-slate-900"
+                      onClick={() => setMobileTonalContextOpen(true)}
+                      aria-label="Abrir contexto tonal"
+                    >
+                      <ChevronRight className="h-4 w-4 shrink-0" />
+                    </button>
                   </div>
-                </button>
+                </div>
               ) : null}
-              {effectiveBoards.scale ? <Fretboard title="Escala" subtitle="Escala + (opcional) extras. Resalta raíz/3ª/5ª." mode="scale" /> : null}
-              {effectiveBoards.patterns ? <Fretboard title="Patrones" subtitle="Patrones: 5 boxes (pentatónicas), 7 3NPS (7 notas) y CAGED. Ruta: sigue la escala en orden y se restringe a patrones." mode="patterns" /> : null}
+              {effectiveBoards.scale ? <Fretboard title="Escala" subtitle={SCALE_INFO_TEXT} mode="scale" /> : null}
+              {effectiveBoards.patterns ? <Fretboard title="Patrones" subtitle={PATTERNS_INFO_TEXT} mode="patterns" /> : null}
               {effectiveBoards.route ? (
-                <>
-                  <PanelBlock title="Ruta musical">
-                    <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-[150px_150px_220px]">
-                      <div>
-                        <label className={UI_LABEL_SM}>Inicio</label>
-                        <input className={UI_INPUT_SM + " mt-1 w-full"} value={routeLabStartCode} onChange={(e) => setRouteLabStartCode(e.target.value)} />
-                      </div>
-                      <div>
-                        <label className={UI_LABEL_SM}>Fin</label>
-                        <input className={UI_INPUT_SM + " mt-1 w-full"} value={routeLabEndCode} onChange={(e) => setRouteLabEndCode(e.target.value)} />
-                      </div>
-                      <div>
-                        <label className={UI_LABEL_SM}>Máx. notas seguidas/cuerda</label>
-                        <select className={UI_SELECT_SM + " mt-1"} value={routeLabMaxPerString} onChange={(e) => setRouteLabMaxPerString(parseInt(e.target.value, 10))}>
-                          {[1, 2, 3, 4, 5].map((n) => (
-                            <option key={n} value={n}>
-                              {n}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                <PanelBlock
+                  title={<InfoTitle label="Ruta musical" info={routeLabPickHelpText} />}
+                  titleTooltip={!isMobileLayout ? routeLabPickHelpText : ""}
+                  headerAside={<div className="text-xs text-slate-600">
+                      {routeLabResult.reason ? (
+                        <span className="font-semibold text-rose-600">{routeLabResult.reason}</span>
+                      ) : (
+                        <span>
+                          Ruta: {routeLabStartCode} {"\u2192"} {routeLabEndCode} | pasos: <b>{routeLabResult.path.length}</b>
+                        </span>
+                      )}
+                    </div>}
+                >
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-[150px_150px_220px]">
+                    <div>
+                      <label className={UI_LABEL_SM}>Inicio</label>
+                      <input className={UI_INPUT_SM + " mt-1 w-full"} value={routeLabStartCode} onChange={(e) => setRouteLabStartCode(e.target.value)} />
                     </div>
+                    <div>
+                      <label className={UI_LABEL_SM}>Fin</label>
+                      <input className={UI_INPUT_SM + " mt-1 w-full"} value={routeLabEndCode} onChange={(e) => setRouteLabEndCode(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className={UI_LABEL_SM}>Máx. notas seguidas/cuerda</label>
+                      <select className={UI_SELECT_SM + " mt-1"} value={routeLabMaxPerString} onChange={(e) => setRouteLabMaxPerString(parseInt(e.target.value, 10))}>
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
 
-                    <div className="mt-2 text-[11px] text-slate-500">Click en el mástil de ruta para elegir: {routeLabPickNext === "start" ? "Inicio" : "Fin"}.</div>
-                  </PanelBlock>
-
-                  <RouteLabFretboard />
-                </>
+                  <div className="mt-3">
+                    <RouteLabFretboard />
+                  </div>
+                </PanelBlock>
               ) : null}
 
               {effectiveBoards.chords ? (
@@ -13960,19 +14335,6 @@ function ChordFretboard({
                       </label>}
                     bodyClassName="space-y-2"
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
-                      <div>
-                        <b>Contexto tonal activo:</b> {tonalContextSummary}
-                      </div>
-                      <button
-                        type="button"
-                        className={UI_BTN_SM + " w-auto px-3"}
-                        onClick={openTonalContextEditor}
-                        title="Editar el contexto tonal que usa la escala, la ruta y el contexto armónico"
-                      >
-                        Editar contexto
-                      </button>
-                    </div>
                     <PanelBlock
                       as="fieldset"
                       disabled={chordDetectMode}
@@ -14836,10 +15198,34 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
 
               {effectiveBoards.nearChords ? (
                 <PanelBlock
-                  title="Acordes cercanos"
-                  description="Selecciona hasta 4 acordes y busca digitaciones dentro de un rango. Ordena por cercanía al primer acorde activo. Los acordes se ajustan automáticamente según la nota raíz y la escala activas."
+                  title={isMobileLayout ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span>Acordes cercanos</span>
+                      <button
+                        type="button"
+                        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-slate-600 hover:text-slate-900"
+                        onClick={(e) => openMobileInfoPopover(e, "Acordes cercanos", NEAR_CHORDS_INFO_TEXT)}
+                        aria-label="Información sobre Acordes cercanos"
+                      >
+                        <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    </span>
+                  ) : "Acordes cercanos"}
+                  titleTooltip={!isMobileLayout ? NEAR_CHORDS_INFO_TEXT : ""}
                   headerAside={<div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-slate-700">Auto escala</span>
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700" title={!isMobileLayout ? NEAR_AUTO_SCALE_INFO_TEXT : undefined}>
+                        <span>Auto escala</span>
+                        {isMobileLayout ? (
+                          <button
+                            type="button"
+                            className="inline-flex h-5 w-5 items-center justify-center rounded-full text-slate-600 hover:text-slate-900"
+                            onClick={(e) => openMobileInfoPopover(e, "Auto escala", NEAR_AUTO_SCALE_INFO_TEXT)}
+                            aria-label="Información sobre Auto escala"
+                          >
+                            <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        ) : null}
+                      </span>
                       <button
                         type="button"
                         className={`rounded-xl px-2 py-1 text-xs ring-1 ring-slate-200 shadow-sm ${nearAutoScaleSync ? "bg-[#71a3c1] text-slate-900" : "bg-white"}`}
@@ -14961,7 +15347,10 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                             </div>}
                         >
 
-                          <div className="grid min-w-max items-stretch gap-2 grid-cols-[96px_210px_90px_200px_200px_130px_220px_56px]">
+                          <div
+                            className="grid min-w-max items-stretch gap-2"
+                            style={{ gridTemplateColumns: `96px 210px 90px ${chordFormSelectWidth} ${chordInversionSelectWidth} 130px 220px 56px` }}
+                          >
                             <div className="min-w-0">
                               <label className={UI_LABEL_SM}>Tono</label>
                               <div className="mt-1 flex items-center gap-1.5">
@@ -15076,7 +15465,8 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                               <label className={UI_LABEL_SM}>Forma</label>
                               {slotUi.usesManualForm ? (
                                 <select
-                                  className={UI_SELECT_SM + " mt-1"}
+                                  className={UI_SELECT_SM_AUTO + " mt-1"}
+                                  style={{ width: chordFormSelectWidth }}
                                   value={slot.form}
                                   onChange={(e) => {
                                     const v = e.target.value;
@@ -15100,7 +15490,13 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
 
                             <div className="min-w-0">
                               <label className={UI_LABEL_SM}>Inversión</label>
-                              <select className={UI_SELECT_SM + " mt-1"} value={slot.inversion} onChange={(e) => updateNearSlot(idx, { inversion: e.target.value, selFrets: null })} disabled={disableAll}>
+                              <select
+                                className={UI_SELECT_SM_AUTO + " mt-1"}
+                                style={{ width: chordInversionSelectWidth }}
+                                value={slot.inversion}
+                                onChange={(e) => updateNearSlot(idx, { inversion: e.target.value, selFrets: null })}
+                                disabled={disableAll}
+                              >
                                 {CHORD_INVERSIONS.map((inv) => (
                                   <option key={inv.value} value={inv.value} disabled={!slotUi.allowThirdInversion && inv.value === "3"}>{inv.label}</option>
                                 ))}
@@ -15228,7 +15624,7 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
               <div className="w-full max-w-[720px] max-h-[calc(100vh-7rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200">
                 <div className="sticky top-0 flex items-start justify-between gap-3 border-b border-slate-200 bg-[#c7d8e5] px-3 py-3">
                   <div className="min-w-0">
-                    <div className="text-base font-semibold text-slate-800" title={TONAL_CONTEXT_TOOLTIP}>Contexto tonal</div>
+                    <div className="text-base font-semibold text-slate-800">Contexto tonal</div>
                     <div className="mt-1 text-xs font-semibold text-slate-600">{tonalContextSummary}</div>
                   </div>
                   <button
@@ -15247,20 +15643,55 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
             </div>
           </>
         ) : null}
+        {isMobileLayout && mobileInfoPopover ? (
+          <>
+            <div
+              className="fixed inset-0 z-40 touch-none overscroll-contain bg-slate-900/35 xl:hidden"
+              onClick={() => setMobileInfoPopover(null)}
+              onTouchMove={(e) => e.preventDefault()}
+              onWheel={(e) => e.preventDefault()}
+            />
+            <div
+              className="fixed z-50 rounded-2xl border border-slate-300 bg-white shadow-2xl xl:hidden"
+              style={{ left: `${mobileInfoPopover.left}px`, top: `${mobileInfoPopover.top}px`, width: `${mobileInfoPopover.width}px` }}
+            >
+              <div
+                className="absolute -top-2 h-4 w-4 rotate-45 border-l border-t border-slate-300 bg-white"
+                style={{ left: `${Math.max(18, Math.min(mobileInfoPopover.arrowLeft - 8, mobileInfoPopover.width - 34))}px` }}
+              />
+              <div className="relative rounded-2xl bg-white">
+                <button
+                  type="button"
+                  className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm"
+                  onClick={() => setMobileInfoPopover(null)}
+                  title="Cerrar información"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <div className="p-4 pr-12 text-sm leading-6 text-slate-600">
+                  {mobileInfoPopover.text}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : null}
         {isMobileLayout ? (
-          <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur xl:hidden">
-            <div className="grid grid-cols-5 gap-2">
+          <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-30 flex justify-center px-3 xl:hidden">
+            <div className="pointer-events-auto w-[min(92vw,430px)] rounded-[30px] border border-slate-200/80 bg-white/96 p-2 shadow-[0_14px_38px_rgba(15,23,42,0.16)] backdrop-blur-md">
+              <div className="grid grid-cols-5 gap-1.5">
               {MOBILE_BOTTOM_NAV_OPTIONS.map((option) => (
                 <button
                   key={option.value}
                   type="button"
-                  className={`min-h-[52px] rounded-2xl px-2 py-2 text-[11px] font-semibold leading-tight ring-1 ring-slate-200 shadow-sm ${mobileActiveSection === option.value ? "bg-[#71a3c1] text-slate-900" : "bg-white text-slate-700 hover:bg-sky-50 hover:text-slate-900"}`}
+                  className={`flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-[22px] px-1.5 py-2 text-[10px] font-semibold leading-tight transition-colors ${mobileActiveSection === option.value ? "bg-[#71a3c1] text-slate-900 shadow-[0_8px_20px_rgba(113,163,193,0.28)]" : "bg-transparent text-slate-600 hover:bg-sky-50 hover:text-slate-900"}`}
                   onClick={() => selectBoardView(option.value)}
                   title={option.label}
                 >
-                  {option.label}
+                  <option.icon className={`shrink-0 ${mobileActiveSection === option.value ? "h-[18px] w-[18px]" : "h-[17px] w-[17px]"}`} aria-hidden="true" />
+                  <span className="block max-w-full truncate">{option.label}</span>
                 </button>
               ))}
+              </div>
             </div>
           </div>
         ) : null}
