@@ -13,6 +13,7 @@ Cada cambio debe mantener sentido musical, coherencia funcional dentro de la app
 - Antes de dar una entrega por buena, hay que validar el resultado en local.
 - La validación local debe incluir `npm run build`.
 - Antes de levantar `npm run preview`, hay que incrementar `APP_VERSION` en `src/App.jsx` para que la versión visible en local ya refleje el cambio.
+- En la primera intervención de cada sesión, si todavía no se ha levantado un `preview` local en este workspace, debe ejecutarse ese flujo automáticamente una vez aunque el usuario no lo pida de forma explícita.
 - Si hace falta revisar la interfaz o el resultado final, se puede levantar `npm run preview` y mostrar la URL local.
 - Entre el `preview` local y la publicación no se debe cambiar ese `APP_VERSION`: si luego el usuario pide publicar, se usa exactamente el mismo número.
 
