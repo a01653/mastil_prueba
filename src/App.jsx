@@ -52,6 +52,7 @@ const MOBILE_BOTTOM_NAV_OPTIONS = [
   { value: "chords", label: "Acordes", icon: ChordDiagramIcon },
   { value: "nearChords", label: "Cercanos", icon: Waypoints },
 ];
+const MOBILE_SECTION_SWIPE_MIN_DISTANCE_PX = 56;
 const SCALE_INFO_TEXT = "Escala + (opcional) extras. Resalta raíz/3ª/5ª.";
 const PATTERNS_INFO_TEXT = "Patrones: 5 boxes (pentatónicas), 7 3NPS (7 notas) y CAGED. Ruta: sigue la escala en orden y se restringe a patrones";
 const NEAR_CHORDS_INFO_TEXT = "Selecciona hasta 4 acordes y busca digitaciones dentro de un rango. Ordena por cercanía al primer acorde activo. Los acordes se ajustan automáticamente según la nota raíz y la escala activas.";
@@ -1165,7 +1166,7 @@ const UI_PRESETS_STORAGE_KEY = "mastil_interactivo_guitarra_presets_v1";
 const UI_STATUS_SESSION_KEY = "mastil_interactivo_guitarra_status_v1";
 const QUICK_PRESET_COUNT = 3;
 const UI_CONFIG_VERSION = 1;
-const APP_VERSION = "3.19";
+const APP_VERSION = "3.20";
 
 function chordDbUrl(keyName, suffix) {
   // Ruta RELATIVA dentro de /public (sin base) => chords-db/...
@@ -7925,6 +7926,8 @@ export default function FretboardScalesPage() {
   const tonalContextRef = useRef(null);
   const importConfigInputRef = useRef(null);
   const chordDetectAudioCtxRef = useRef(null);
+  const mobileSectionTouchRef = useRef(null);
+  const mobileSectionSuppressClickRef = useRef(false);
 
   const [storageHydrated, setStorageHydrated] = useState(false);
   const [configNotice, setConfigNotice] = useState(null);
@@ -7970,6 +7973,9 @@ export default function FretboardScalesPage() {
   const [isMobileLayout, setIsMobileLayout] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileActiveSection, setMobileActiveSection] = useState("chords");
+  const [mobileSectionMotion, setMobileSectionMotion] = useState("none");
+  const [mobileSectionDragX, setMobileSectionDragX] = useState(0);
+  const [mobileSectionDragging, setMobileSectionDragging] = useState(false);
   const [mobileTonalContextOpen, setMobileTonalContextOpen] = useState(false);
   const [showKingBoxes, setShowKingBoxes] = useState(false);
   const [kingBoxMode, setKingBoxMode] = useState("bb");
@@ -8040,9 +8046,15 @@ export default function FretboardScalesPage() {
       setMobileMenuOpen(false);
       setMobileTonalContextOpen(false);
       setMobileInfoPopover(null);
+      setMobileSectionMotion("none");
+      setMobileSectionDragX(0);
+      setMobileSectionDragging(false);
       return;
     }
     const firstVisible = MOBILE_SECTION_OPTIONS.find((option) => showBoards[option.value])?.value || "chords";
+    setMobileSectionMotion("none");
+    setMobileSectionDragX(0);
+    setMobileSectionDragging(false);
     setMobileActiveSection(firstVisible);
   }, [isMobileLayout]);
 
@@ -13603,6 +13615,11 @@ function ChordFretboard({
 
   function selectBoardView(section) {
     if (isMobileLayout) {
+      const currentIdx = MOBILE_BOTTOM_NAV_OPTIONS.findIndex((option) => option.value === mobileActiveSection);
+      const nextIdx = MOBILE_BOTTOM_NAV_OPTIONS.findIndex((option) => option.value === section);
+      setMobileSectionMotion(currentIdx >= 0 && nextIdx >= 0 && nextIdx !== currentIdx ? (nextIdx > currentIdx ? "next" : "prev") : "none");
+      setMobileSectionDragX(0);
+      setMobileSectionDragging(false);
       setMobileActiveSection(section);
       setMobileMenuOpen(false);
       return;
@@ -13612,6 +13629,90 @@ function ChordFretboard({
       return;
     }
     setShowBoards((prev) => normalizeBoardVisibility({ ...prev, [section]: true }, section));
+  }
+
+  function mobileSectionIndex() {
+    return MOBILE_BOTTOM_NAV_OPTIONS.findIndex((option) => option.value === mobileActiveSection);
+  }
+
+  function canMoveMobileSectionBy(delta) {
+    const idx = mobileSectionIndex();
+    const nextIdx = idx + delta;
+    return idx >= 0 && nextIdx >= 0 && nextIdx < MOBILE_BOTTOM_NAV_OPTIONS.length;
+  }
+
+  function isMobileSectionSwipeIgnored(target) {
+    return !!target?.closest?.("button,input,select,textarea,a,label,[role='button'],[contenteditable='true'],[data-mobile-swipe-ignore='true']");
+  }
+
+  function moveMobileSectionBy(delta) {
+    if (!isMobileLayout || mobileMenuOpen || mobileTonalContextOpen || mobileInfoPopover || manualOpen || studyOpen) return;
+    const currentIdx = mobileSectionIndex();
+    const nextIdx = currentIdx + delta;
+    if (currentIdx < 0 || nextIdx < 0 || nextIdx >= MOBILE_BOTTOM_NAV_OPTIONS.length) return;
+    selectBoardView(MOBILE_BOTTOM_NAV_OPTIONS[nextIdx].value);
+  }
+
+  function handleMobileSectionTouchStart(e) {
+    if (!isMobileLayout || mobileMenuOpen || mobileTonalContextOpen || mobileInfoPopover || manualOpen || studyOpen) return;
+    if (e.touches.length !== 1 || isMobileSectionSwipeIgnored(e.target)) {
+      mobileSectionTouchRef.current = null;
+      return;
+    }
+    const touch = e.touches[0];
+    setMobileSectionMotion("none");
+    setMobileSectionDragX(0);
+    setMobileSectionDragging(false);
+    mobileSectionTouchRef.current = { x: touch.clientX, y: touch.clientY, swiping: false };
+  }
+
+  function handleMobileSectionTouchMove(e) {
+    const start = mobileSectionTouchRef.current;
+    if (!start || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Math.abs(dx) > 16 && Math.abs(dx) > Math.abs(dy) * 1.25) {
+      start.swiping = true;
+      e.preventDefault();
+      const canMove = canMoveMobileSectionBy(dx < 0 ? 1 : -1);
+      const viewportWidth = window.innerWidth || 360;
+      const maxDrag = Math.max(120, viewportWidth * 0.55);
+      const boundedDx = Math.max(-maxDrag, Math.min(maxDrag, canMove ? dx : dx * 0.24));
+      setMobileSectionDragging(true);
+      setMobileSectionDragX(boundedDx);
+    }
+  }
+
+  function handleMobileSectionTouchEnd(e) {
+    const start = mobileSectionTouchRef.current;
+    mobileSectionTouchRef.current = null;
+    setMobileSectionDragging(false);
+    if (!start || !e.changedTouches.length) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const isHorizontalSwipe = Math.abs(dx) >= MOBILE_SECTION_SWIPE_MIN_DISTANCE_PX && Math.abs(dx) > Math.abs(dy) * 1.25;
+    if (!isHorizontalSwipe) {
+      setMobileSectionDragX(0);
+      return;
+    }
+    mobileSectionSuppressClickRef.current = true;
+    window.setTimeout(() => {
+      mobileSectionSuppressClickRef.current = false;
+    }, 250);
+    if (canMoveMobileSectionBy(dx < 0 ? 1 : -1)) {
+      setMobileSectionDragX(0);
+      moveMobileSectionBy(dx < 0 ? 1 : -1);
+      return;
+    }
+    setMobileSectionDragX(0);
+  }
+
+  function handleMobileSectionClickCapture(e) {
+    if (!mobileSectionSuppressClickRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
   }
 
   function renderColorPanels(boardVisibility, extraClassName = "") {
@@ -13912,6 +14013,34 @@ function ChordFretboard({
   return (
     <div className="app-theme min-h-screen overflow-x-auto text-slate-900" style={appThemeStyle}>
       <style>{`
+        @keyframes mobile-section-slide-next {
+          from { opacity: 0.35; transform: translateX(76px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes mobile-section-slide-prev {
+          from { opacity: 0.35; transform: translateX(-76px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+        .mobile-section-slide {
+          --mobile-section-drag-x: 0px;
+          transform: translate3d(var(--mobile-section-drag-x), 0, 0);
+          transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 420ms cubic-bezier(0.22, 1, 0.36, 1);
+          will-change: transform, opacity;
+        }
+        .mobile-section-slide[data-dragging="true"] {
+          transition: none;
+        }
+        .mobile-section-slide[data-motion="next"] {
+          animation: mobile-section-slide-next 420ms cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .mobile-section-slide[data-motion="prev"] {
+          animation: mobile-section-slide-prev 420ms cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .mobile-section-slide[data-motion] {
+            animation: none !important;
+          }
+        }
         .app-theme .bg-white { background-color: var(--panel-bg) !important; }
         .app-theme .bg-sky-50 { background: var(--panel-soft-bg) !important; background-image: none !important; }
         .app-theme .bg-sky-100 { background: var(--panel-soft-bg) !important; background-image: none !important; }
@@ -14240,7 +14369,28 @@ function ChordFretboard({
             </div>
 
             {/* MÁSTILES */}
-            <div className="space-y-3">
+            <div
+              className={isMobileLayout ? "space-y-3 overflow-x-hidden" : "space-y-3"}
+              onTouchStart={handleMobileSectionTouchStart}
+              onTouchMove={handleMobileSectionTouchMove}
+              onTouchEnd={handleMobileSectionTouchEnd}
+              onTouchCancel={() => {
+                mobileSectionTouchRef.current = null;
+                setMobileSectionDragging(false);
+                setMobileSectionDragX(0);
+              }}
+              onClickCapture={handleMobileSectionClickCapture}
+            >
+              <div
+                key={isMobileLayout ? mobileActiveSection : "desktop-sections"}
+                className={isMobileLayout ? "mobile-section-slide space-y-3" : "space-y-3"}
+                data-motion={isMobileLayout ? mobileSectionMotion : undefined}
+                data-dragging={isMobileLayout && mobileSectionDragging ? "true" : undefined}
+                style={isMobileLayout ? {
+                  "--mobile-section-drag-x": `${mobileSectionDragX}px`,
+                  opacity: mobileSectionDragging ? Math.max(0.72, 1 - Math.min(Math.abs(mobileSectionDragX), 260) / 900) : undefined,
+                } : undefined}
+              >
               {isMobileLayout ? (
                 <div
                   className="flex w-full items-center gap-2 rounded-2xl border border-slate-200 p-3 text-left shadow-sm ring-1 ring-slate-200"
@@ -14276,9 +14426,9 @@ function ChordFretboard({
                   </div>
                 </div>
               ) : null}
-              {effectiveBoards.scale ? <Fretboard title="Escala" subtitle={SCALE_INFO_TEXT} mode="scale" /> : null}
-              {effectiveBoards.patterns ? <Fretboard title="Patrones" subtitle={PATTERNS_INFO_TEXT} mode="patterns" /> : null}
-              {effectiveBoards.route ? (
+                {effectiveBoards.scale ? <Fretboard title="Escala" subtitle={SCALE_INFO_TEXT} mode="scale" /> : null}
+                {effectiveBoards.patterns ? <Fretboard title="Patrones" subtitle={PATTERNS_INFO_TEXT} mode="patterns" /> : null}
+                {effectiveBoards.route ? (
                 <PanelBlock
                   title={<InfoTitle label="Ruta musical" info={routeLabPickHelpText} />}
                   titleTooltip={!isMobileLayout ? routeLabPickHelpText : ""}
@@ -14317,9 +14467,9 @@ function ChordFretboard({
                     <RouteLabFretboard />
                   </div>
                 </PanelBlock>
-              ) : null}
+                ) : null}
 
-              {effectiveBoards.chords ? (
+                {effectiveBoards.chords ? (
                 <div className="space-y-3">
                   {/* ACORDES (principal) */}
                   <PanelBlock
@@ -15196,7 +15346,7 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
                 </div>
               ) : null}
 
-              {effectiveBoards.nearChords ? (
+                {effectiveBoards.nearChords ? (
                 <PanelBlock
                   title={isMobileLayout ? (
                     <span className="inline-flex items-center gap-2">
@@ -15607,9 +15757,10 @@ Mixto: combina 4J y al menos una 4ª aumentada (A4), así que no es puro.`}>
 
                   <NearChordsFretboard />
                 </PanelBlock>
-              ) : null}
+                ) : null}
 
-              {(effectiveBoards.chords || effectiveBoards.nearChords) ? <StudyPanel /> : null}
+                {(effectiveBoards.chords || effectiveBoards.nearChords) ? <StudyPanel /> : null}
+              </div>
             </div>
           </div>
 
